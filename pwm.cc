@@ -97,11 +97,13 @@ int decrypt(const char *in_filename, char *buf, int *bufsiz) {
     return -1;
   }
 
-  int inl = BIO_read(in, buf, *bufsiz);
-  if (inl <= 0)
-    return -1;
+  in = BIO_push(benc, in);
 
-  printf("OK: '%s'\n", key);
+  int inl = BIO_read(in, buf, *bufsiz);
+  if (inl <= 0) {
+    ERR_print_errors(bio_err);
+    return -1;
+  }
 
   return 0;
 }
