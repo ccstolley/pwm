@@ -1,40 +1,35 @@
 #include <cstdio>
 #include <cstring>
+#include <string>
 #include <openssl/conf.h>
 #include <openssl/err.h>
 #include <openssl/evp.h>
 #include <readpassphrase.h>
 
-int decrypt(const char *in_filename, char *buf, int *bufsiz);
+int decrypt(const char *in_filename, std::string &data);
 
 BIO *bio_err = NULL;
 
 int main(const int argc, const char *argv[]) {
-  char buf[65536];
-  int bufsiz = sizeof buf;
+  std::string data;
   bio_err = BIO_new_fp(stderr, BIO_NOCLOSE);
   if (bio_err == NULL) {
     fprintf(stderr, "failed to initialise bio_err\n");
     exit(1);
   }
 
-  if (decrypt(argv[1], buf, &bufsiz) == 0) {
-    printf("Shiz '%s'\n", buf);
+  if (decrypt(argv[1], data) == 0) {
+    printf("Shiz '%s'\n", data.c_str());
   }
   printf("done\n");
 }
 
 /**
- * Attempt to decrypt the contents of filename.
- *
- * buf should be large enough to hold the decrypted contents.
- * bufsiz is both an input parameter and an output parameter.
- *
- * If buf is too small or if buf is NULL, the required size
- * will be returned in bufsiz.
+ * Decrypt the contents of filename and store it in data.
  */
-int decrypt(const char *in_filename, char *buf, int *bufsiz) {
+int decrypt(const char *in_filename, std::string &data) {
   static const char magic[] = "Salted__";
+  char buf[255];
   char mbuf[sizeof magic - 1];
   char key[EVP_MAX_KEY_LENGTH];
   unsigned char dkey[EVP_MAX_KEY_LENGTH], iv[EVP_MAX_IV_LENGTH];
@@ -99,10 +94,12 @@ int decrypt(const char *in_filename, char *buf, int *bufsiz) {
 
   in = BIO_push(benc, in);
 
-  int inl = BIO_read(in, buf, *bufsiz);
-  if (inl <= 0) {
-    ERR_print_errors(bio_err);
-    return -1;
+  for (;;) {
+    int inl = BIO_read(in, buf, sizeof buf);
+    if (inl <= 0) {
+      break;
+    }
+    data.append(buf, inl);
   }
 
   return 0;
