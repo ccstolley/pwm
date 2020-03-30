@@ -7,6 +7,7 @@
 #include <string>
 
 bool decrypt(const char *in_filename, std::string &data);
+std::string trim(const std::string &s);
 
 BIO *bio_err = NULL;
 
@@ -23,6 +24,17 @@ int main(const int argc, const char *argv[]) {
   }
 
   printf("done\n");
+}
+
+std::string trim(const std::string &s) {
+  auto front = std::find_if_not(s.begin(), s.end(), std::isspace);
+  if (front == s.begin())
+    return s;
+  return std::string(
+      front,
+      std::find_if_not(s.rbegin(), std::string::const_reverse_iterator(front),
+                       std::isspace)
+          .base());
 }
 
 /**

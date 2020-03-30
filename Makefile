@@ -3,3 +3,6 @@ all: pwm.cc
 
 fmt: pwm.cc
 	clang-format -i pwm.cc
+
+clean:
+	rm -f pwm pwm.core *.o
