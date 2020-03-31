@@ -1,3 +1,5 @@
+#include <algorithm>
+#include <cctype>
 #include <cstdio>
 #include <cstring>
 #include <openssl/conf.h>
@@ -5,10 +7,15 @@
 #include <openssl/evp.h>
 #include <readpassphrase.h>
 #include <string>
+#include <sstream>
 
 bool decrypt(const char *in_filename, std::string &data);
 std::string trim(const std::string &s);
-
+struct ent {
+  std::string name;
+  std::string meta;
+  std::string password;
+};
 BIO *bio_err = NULL;
 
 int main(const int argc, const char *argv[]) {
@@ -24,6 +31,14 @@ int main(const int argc, const char *argv[]) {
   }
 
   printf("done\n");
+}
+
+struct ent find(const std::string &needle, const std::string &haystack) {
+
+  struct ent entry {};
+  std::stringstream ss{haystack};
+
+  return entry;
 }
 
 std::string trim(const std::string &s) {
