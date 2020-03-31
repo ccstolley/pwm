@@ -6,8 +6,8 @@
 #include <openssl/err.h>
 #include <openssl/evp.h>
 #include <readpassphrase.h>
-#include <string>
 #include <sstream>
+#include <string>
 
 bool decrypt(const char *in_filename, std::string &data);
 std::string trim(const std::string &s);
@@ -42,13 +42,14 @@ struct ent find(const std::string &needle, const std::string &haystack) {
 }
 
 std::string trim(const std::string &s) {
-  auto front = std::find_if_not(s.begin(), s.end(), std::isspace);
+  auto front = std::find_if_not(
+      s.begin(), s.end(), [](unsigned char c) { return std::isspace(c); });
   if (front == s.begin())
     return s;
   return std::string(
       front,
       std::find_if_not(s.rbegin(), std::string::const_reverse_iterator(front),
-                       std::isspace)
+                       [](unsigned char c) { return std::isspace(c); })
           .base());
 }
 
