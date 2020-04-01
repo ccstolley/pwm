@@ -11,6 +11,8 @@
 
 bool decrypt(const char *in_filename, std::string &data);
 std::string trim(const std::string &s);
+struct ent find(const std::string &needle, const std::string &haystack);
+
 struct ent {
   std::string name;
   std::string meta;
@@ -27,7 +29,7 @@ int main(const int argc, const char *argv[]) {
   }
 
   if (decrypt(argv[1], data)) {
-    printf("Shiz '%s'\n", data.c_str());
+    find("river", data);
   }
 
   printf("done\n");
@@ -36,7 +38,25 @@ int main(const int argc, const char *argv[]) {
 struct ent find(const std::string &needle, const std::string &haystack) {
 
   struct ent entry {};
-  std::stringstream ss{haystack};
+  std::stringstream linestream{haystack};
+  std::stringstream costream{};
+
+  for (std::string line; std::getline(linestream, line);) {
+    costream.clear();
+    costream.str(line);
+    std::string f;
+
+    std::getline(costream, f, ':');
+    entry.name = trim(f);
+    std::getline(costream, f, ':');
+    std::getline(costream, f, ' ');
+    entry.meta = trim(f);
+    std::getline(costream, f, ' ');
+    entry.password = trim(f);
+    printf("name: '%s' meta: '%s' pass: '%s'\n", entry.name.c_str(), entry.meta.c_str(), entry.password.c_str());
+
+
+  }
 
   return entry;
 }
