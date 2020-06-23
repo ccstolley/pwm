@@ -8,10 +8,15 @@
 #include <readpassphrase.h>
 #include <sstream>
 #include <string>
+#include <vector>
 
 bool decrypt(const char *in_filename, std::string &data);
 std::string trim(const std::string &s);
-struct ent find(const std::string &needle, const std::string &haystack);
+std::vector<std::string> split(const std::string &s,
+                               const std::string &delimiter);
+bool find(const std::string &needle, const std::string &haystack,
+          struct ent &entry);
+const char *STORE_PATH = "/home/stolley//mystuff/personal/pwm/stolley.txt.enc";
 
 struct ent {
   std::string name;
@@ -22,43 +27,73 @@ BIO *bio_err = NULL;
 
 int main(const int argc, const char *argv[]) {
   std::string data;
+  struct ent entry;
+
   bio_err = BIO_new_fp(stderr, BIO_NOCLOSE);
   if (bio_err == NULL) {
     fprintf(stderr, "failed to initialise bio_err\n");
     exit(1);
   }
 
-  if (decrypt(argv[1], data)) {
-    find("river", data);
+  if (decrypt(STORE_PATH, data)) {
+    if (find(argv[1], data, entry)) {
+      fprintf(stderr, "%s: %s\n", entry.name.c_str(), entry.meta.c_str());
+      printf("%s\n", entry.password.c_str());
+    } else {
+      fprintf(stderr, "Not found.\n");
+    }
+  } else {
+    fprintf(stderr, "Decrypt failed\n");
   }
-
-  printf("done\n");
 }
 
-struct ent find(const std::string &needle, const std::string &haystack) {
-
-  struct ent entry {};
+bool find(const std::string &needle, const std::string &haystack,
+          struct ent &entry) {
   std::stringstream linestream{haystack};
   std::stringstream costream{};
+  int i = -1;
 
   for (std::string line; std::getline(linestream, line);) {
-    costream.clear();
-    costream.str(line);
-    std::string f;
-
-    std::getline(costream, f, ':');
-    entry.name = trim(f);
-    std::getline(costream, f, ':');
-    std::getline(costream, f, ' ');
-    entry.meta = trim(f);
-    std::getline(costream, f, ' ');
-    entry.password = trim(f);
-    printf("name: '%s' meta: '%s' pass: '%s'\n", entry.name.c_str(), entry.meta.c_str(), entry.password.c_str());
-
-
+    if (needle != line.substr(0, needle.size())) {
+      continue;
+    }
+    auto fields = split(line, ":");
+    if (fields.size() < 2) {
+      fprintf(stderr, "warning: line %d missing data", i);
+      continue;
+    }
+    entry.name = fields[0];
+    auto data = split(fields[1], " ");
+    if (data.size() == 1) {
+      entry.password = data[0];
+    } else {
+      entry.meta = data[0]; // typically username
+      entry.password = data[data.size() - 1];
+    }
+    return true;
   }
+  return false;
+}
 
-  return entry;
+std::vector<std::string> split(const std::string &s,
+                               const std::string &delimiter) {
+  size_t start = 0, end = 0;
+  std::string token;
+  std::vector<std::string> rv;
+  while ((end = s.find(delimiter, start)) != std::string::npos) {
+    token = trim(s.substr(start, end - start));
+    if (!token.empty()) {
+      rv.push_back(trim(token));
+    }
+    start = end + delimiter.size();
+  }
+  if (start < s.size()) {
+    token = trim(s.substr(start));
+    if (!token.empty()) {
+      rv.push_back(token);
+    }
+  }
+  return rv;
 }
 
 std::string trim(const std::string &s) {
@@ -83,7 +118,6 @@ bool decrypt(const char *in_filename, std::string &data) {
   char key[EVP_MAX_KEY_LENGTH];
   unsigned char dkey[EVP_MAX_KEY_LENGTH], iv[EVP_MAX_IV_LENGTH];
   unsigned char salt[PKCS5_SALT_LEN];
-  bool status = false;
 
   BIO *in = NULL, *benc = NULL;
   EVP_CIPHER_CTX *ctx = NULL;
@@ -148,10 +182,10 @@ bool decrypt(const char *in_filename, std::string &data) {
     data.append(buf, inl);
   }
 
-  status = true;
+  return true;
 
 end:
   ERR_print_errors(bio_err);
   BIO_free_all(in);
-  return status;
+  return false;
 }
