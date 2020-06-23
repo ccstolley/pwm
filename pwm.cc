@@ -161,7 +161,7 @@ bool decrypt(const char *in_filename, std::string *data) {
     goto end;
   }
 
-  if (readpassphrase("Master passphrase: ", key, sizeof(key), 0) == NULL) {
+  if (readpassphrase("passphrase: ", key, sizeof(key), 0) == NULL) {
     perror("failed to read passphrase");
     goto end;
   }
