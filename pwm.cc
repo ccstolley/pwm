@@ -58,15 +58,15 @@ bool find(const std::string &needle, const std::string &haystack,
           struct ent *entry) {
   std::stringstream linestream{haystack};
   std::stringstream costream{};
-  int i = -1;
+  int i = 0;
 
-  for (std::string line; std::getline(linestream, line);) {
+  for (std::string line; std::getline(linestream, line); i++) {
     if (needle != line.substr(0, needle.size())) {
       continue;
     }
     auto fields = split(line, ":");
     if (fields.size() < 2) {
-      fprintf(stderr, "warning: line %d missing data", i);
+      fprintf(stderr, "warning: missing data on line %d\n", i);
       continue;
     }
     entry->name = fields[0];
