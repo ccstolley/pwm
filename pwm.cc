@@ -29,6 +29,11 @@ int main(const int argc, const char *argv[]) {
   std::string data;
   struct ent entry;
 
+  if (argc < 2) {
+    fprintf(stderr, "Specify a search string.\n");
+    exit(1);
+  }
+
   bio_err = BIO_new_fp(stderr, BIO_NOCLOSE);
   if (bio_err == NULL) {
     fprintf(stderr, "failed to initialise bio_err\n");
@@ -39,12 +44,14 @@ int main(const int argc, const char *argv[]) {
     if (find(argv[1], data, &entry)) {
       fprintf(stderr, "\n%s: %s\n", entry.name.c_str(), entry.meta.c_str());
       printf("%s\n", entry.password.c_str());
+      return 0;
     } else {
       fprintf(stderr, "Not found.\n");
     }
   } else {
     fprintf(stderr, "Decrypt failed\n");
   }
+  return 1;
 }
 
 bool find(const std::string &needle, const std::string &haystack,
