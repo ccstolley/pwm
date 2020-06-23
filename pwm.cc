@@ -1,57 +1,68 @@
-#include <algorithm>
-#include <cctype>
-#include <cstdio>
-#include <cstring>
-#include <openssl/conf.h>
-#include <openssl/err.h>
-#include <openssl/evp.h>
-#include <readpassphrase.h>
-#include <sstream>
-#include <string>
-#include <vector>
+#include "pwm.h"
 
-bool decrypt(const char *in_filename, std::string *data);
-std::string trim(const std::string &s);
-std::vector<std::string> split(const std::string &s,
-                               const std::string &delimiter);
-bool find(const std::string &needle, const std::string &haystack,
-          struct ent *entry);
 const char *STORE_PATH = "/home/stolley//mystuff/personal/pwm/stolley.txt.enc";
-
-struct ent {
-  std::string name;
-  std::string meta;
-  std::string password;
-};
 BIO *bio_err = NULL;
 
+void bail(std::string msg) {
+  fprintf(stderr, "%s\n", msg.c_str());
+  exit(1);
+}
+
+#ifndef TESTING
 int main(const int argc, const char *argv[]) {
   std::string data;
   struct ent entry;
+  bool update = false;
 
-  if (argc < 2) {
-    fprintf(stderr, "Specify a search string.\n");
-    exit(1);
+  if (strcmp("pwmupdate", argv[0]) == 0) {
+    update = true;
+  }
+  if (!update && argc < 2) {
+    bail("Specify a search string.");
   }
 
   bio_err = BIO_new_fp(stderr, BIO_NOCLOSE);
   if (bio_err == NULL) {
-    fprintf(stderr, "failed to initialise bio_err\n");
-    exit(1);
+    bail("failed to initialise bio_err");
   }
 
   if (decrypt(STORE_PATH, &data)) {
-    if (find(argv[1], data, &entry)) {
-      fprintf(stderr, "\n%s: %s\n", entry.name.c_str(), entry.meta.c_str());
-      printf("%s\n", entry.password.c_str());
-      return 0;
+    if (update) {
+      // TODO: dump data to tmp file
+      // TODO: fork/exec vi to open tmp file
+      // TODO: wait on vi pid
+      // TODO: save old store file to .bak, encrypt tmp file and replace old
+      // store file.
+      pid_t pid = 0;
+      if (pid == -1) {
+
+      } else {
+      }
     } else {
-      fprintf(stderr, "Not found.\n");
+      if (find(argv[1], data, &entry)) {
+        fprintf(stderr, "\n%s: %s\n", entry.name.c_str(), entry.meta.c_str());
+        printf("%s\n", entry.password.c_str());
+        return 0;
+      } else {
+        fprintf(stderr, "Not found.\n");
+      }
     }
   } else {
     fprintf(stderr, "Decrypt failed\n");
   }
   return 1;
+}
+#endif // TESTING
+
+bool dump_to_file(const std::string &data, const std::string &filename) {
+  umask(077); // rw by owner only
+
+  std::ofstream out(filename);
+  if (!out) {
+    bail("Unable to write data to temp file.");
+  }
+  out.write(data.c_str(), sizeof(char) * data.size());
+  return out.good();
 }
 
 bool find(const std::string &needle, const std::string &haystack,
@@ -107,8 +118,8 @@ std::vector<std::string> split(const std::string &s,
 std::string trim(const std::string &s) {
   auto front = std::find_if_not(
       s.begin(), s.end(), [](unsigned char c) { return std::isspace(c); });
-  if (front == s.begin()) {
-    return s;
+  if (front == s.end()) {
+    return "";
   }
   return std::string(
       front,
