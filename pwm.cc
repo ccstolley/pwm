@@ -11,10 +11,11 @@ void bail(std::string msg) {
 #ifndef TESTING
 int main(const int argc, const char *argv[]) {
   std::string data;
+  std::string key;
   struct ent entry;
   bool update = false;
 
-  if (strcmp("pwmupdate", argv[0]) == 0) {
+  if (strcmp("pwmupdate", basename(argv[0])) == 0) {
     update = true;
   }
   if (!update && argc < 2) {
@@ -26,18 +27,28 @@ int main(const int argc, const char *argv[]) {
     bail("failed to initialise bio_err");
   }
 
-  if (decrypt(STORE_PATH, &data)) {
+  key = readpass();
+  if (decrypt(std::string(STORE_PATH), key, &data)) {
     if (update) {
-      // TODO: dump data to tmp file
-      // TODO: fork/exec vi to open tmp file
-      // TODO: wait on vi pid
-      // TODO: save old store file to .bak, encrypt tmp file and replace old
-      // store file.
-      pid_t pid = 0;
-      if (pid == -1) {
-
+      const char *pwm_tmp_val = getenv("PWM_TMP");
+      std::string tmpfile;
+      if (pwm_tmp_val == nullptr) {
+        tmpfile = STORE_PATH;
+        tmpfile += ".tmp";
       } else {
+        tmpfile = pwm_tmp_val;
       }
+      fprintf(stderr, "dumping to %s\n", tmpfile.c_str());
+      if (!dump_to_file(data, tmpfile)) {
+        bail("failed to write temp file.");
+      }
+      std::string cmd("vi -S -c 'set recdir= backup=' ");
+      cmd += tmpfile;
+      system(cmd.c_str());
+
+      // TODO: move old store to .bak
+      // TODO: encrypt new store
+      // TODO: clean up tmp file
     } else {
       if (find(argv[1], data, &entry)) {
         fprintf(stderr, "\n%s: %s\n", entry.name.c_str(), entry.meta.c_str());
@@ -59,7 +70,7 @@ bool dump_to_file(const std::string &data, const std::string &filename) {
 
   std::ofstream out(filename);
   if (!out) {
-    bail("Unable to write data to temp file.");
+    bail("Unable to create temp file.");
   }
   out.write(data.c_str(), sizeof(char) * data.size());
   return out.good();
@@ -128,14 +139,22 @@ std::string trim(const std::string &s) {
           .base());
 }
 
+std::string readpass() {
+  std::string key(EVP_MAX_KEY_LENGTH, '\0');
+  if (readpassphrase("passphrase: ", &key[0], key.size(), 0) == NULL) {
+    bail("failed to read passphrase");
+  }
+  return key;
+}
+
 /**
  * Decrypt the contents of filename and store it in data.
  */
-bool decrypt(const char *in_filename, std::string *data) {
+bool decrypt(const std::string &in_filename, std::string &key,
+             std::string *data) {
   static const char magic[] = "Salted__";
   char buf[255];
   char mbuf[sizeof magic - 1];
-  char key[EVP_MAX_KEY_LENGTH];
   unsigned char dkey[EVP_MAX_KEY_LENGTH];
   unsigned char iv[EVP_MAX_IV_LENGTH];
   unsigned char salt[PKCS5_SALT_LEN];
@@ -150,13 +169,13 @@ bool decrypt(const char *in_filename, std::string *data) {
     goto end;
   }
 
-  if (in_filename == NULL) {
+  if (in_filename.empty()) {
     BIO_printf(bio_err, "NULL filenames not allowed.\n");
     goto end;
   }
 
-  if (BIO_read_filename(in, in_filename) <= 0) {
-    perror(in_filename);
+  if (BIO_read_filename(in, in_filename.c_str()) <= 0) {
+    perror(in_filename.c_str());
     goto end;
   }
 
@@ -172,18 +191,13 @@ bool decrypt(const char *in_filename, std::string *data) {
     goto end;
   }
 
-  if (readpassphrase("passphrase: ", key, sizeof(key), 0) == NULL) {
-    perror("failed to read passphrase");
-    goto end;
-  }
-
   if (EVP_BytesToKey(cipher, EVP_sha256(), salt,
-                     reinterpret_cast<unsigned char *>(key), strlen(key), 1,
-                     dkey, iv) == 0) {
+                     reinterpret_cast<const unsigned char *>(key.c_str()),
+                     strlen(key.c_str()), 1, dkey, iv) == 0) {
     perror("failed to derive key and iv");
     goto end;
   }
-  explicit_bzero(key, sizeof(key));
+  explicit_bzero(&key[0], key.size());
 
   if ((benc = BIO_new(BIO_f_cipher())) == NULL) {
     goto end;

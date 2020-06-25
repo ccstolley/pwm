@@ -1,6 +1,7 @@
 #define DOCTEST_CONFIG_IMPLEMENT_WITH_MAIN
 #include "doctest.h"
 #include "pwm.h"
+#include <cstdio>
 
 TEST_CASE("verify dump_to_file()") {
   std::string filename("atest.tmp");
@@ -15,6 +16,7 @@ TEST_CASE("verify dump_to_file()") {
   in.seekg(0);
   REQUIRE(in.read(&s[0], size));
   REQUIRE(s == data1);
+  remove(filename.c_str());
 }
 
 TEST_CASE("verify trim()") {
@@ -40,4 +42,22 @@ TEST_CASE("verify split()") {
 
   pieces = split("", " ");
   CHECK(pieces.size() == 0);
+}
+
+TEST_CASE("verify decrypt()") {
+  std::string encdat("Salted__!0F\x03\x95\x9a\xd5[\x87\x1f"
+                     "B\xec\xa5\xedz\xc2\xd8"
+                     "a-\x9dL\xae\x97"
+                     "0");
+  std::string key("pwmtest");
+  const char *filename = "t.enc.tmp";
+
+  std::ofstream out(filename, std::ifstream::binary);
+  REQUIRE(out.write(&encdat[0], encdat.size()));
+  out.close();
+
+  std::string s;
+  REQUIRE(decrypt(filename, key, &s));
+  REQUIRE(s == "a test crypt\n");
+  remove(filename);
 }
