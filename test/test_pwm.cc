@@ -60,28 +60,18 @@ TEST_CASE("verify decrypt()") {
   std::string s;
   REQUIRE(decrypt(filename, key, &s));
   REQUIRE(s == "a test crypt\n");
-  remove(filename);
+  std::remove(filename);
 }
 
 TEST_CASE("verify encrypt()") {
   const std::string decdat("a test crypt\n");
   const std::string key("pwmtest");
   const char *filename = "t.dec.tmp";
+  std::string s;
 
   REQUIRE(encrypt(filename, key, decdat));
-
-  std::ifstream in(filename, std::ios::binary | std::ios::ate);
-  auto sz = in.tellg();
-  in.seekg(0);
-  std::string dat(sz, '\0');
-  in.read(&dat[0], dat.size());
-  REQUIRE(in.good());
-  REQUIRE(in.gcount() == sz);
-  in.close();
-
-  std::string s;
   REQUIRE(decrypt(filename, key, &s));
   REQUIRE(s == decdat);
 
-  remove(filename);
+  std::remove(filename);
 }

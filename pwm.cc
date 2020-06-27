@@ -41,17 +41,22 @@ int main(const int argc, const char *argv[]) {
       } else {
         tmpfile = pwm_tmp_val;
       }
-      fprintf(stderr, "dumping to %s\n", tmpfile.c_str());
       if (!dump_to_file(data, tmpfile)) {
         bail("failed to write temp file.");
       }
       std::string cmd("vi -S -c 'set recdir= backup=' ");
       cmd += tmpfile;
-      system(cmd.c_str());
+      if (system(cmd.c_str()) != 0) {
+        bail("problem with system()");
+      }
       save_backup(STORE_PATH);
-      // TODO: encrypt new store
+      if (!encrypt(STORE_PATH, key, readfile(tmpfile))) {
+        bail("re-encrypt failed! backup saved.");
+      }
       explicit_bzero(&key[0], key.size());
-      // TODO: clean up tmp file
+      if (!wipefile(tmpfile)) {
+        bail("failed to wipe file.");
+      }
     } else {
       explicit_bzero(&key[0], key.size());
       if (find(argv[1], data, &entry)) {
@@ -72,6 +77,41 @@ bool save_backup(const char *filename) {
   std::string bak(filename);
   bak += ".bak";
   return std::rename(filename, bak.c_str()) == 0;
+}
+
+std::string readfile(const std::string &filename) {
+  std::ifstream in(filename, std::ios::binary | std::ios::ate);
+  auto sz = in.tellg();
+  in.seekg(0);
+  std::string dat(sz, '\0');
+  in.read(&dat[0], dat.size());
+  if (in.good() && in.gcount() == sz) {
+    in.close();
+    return dat;
+  }
+  bail("Failed to read file");
+  return nullptr;
+}
+
+bool wipefile(const std::string &filename) {
+  char buf[64];
+  std::ifstream::pos_type sz = 0;
+  {
+    std::ifstream in(filename, std::ifstream::ate | std::ifstream::binary);
+    sz = in.tellg();
+  }
+  std::ofstream out(filename, std::ios::binary);
+  while (sz > out.tellp()) {
+    arc4random_buf(buf, sizeof(buf));
+    out.write(buf, sizeof(buf));
+  }
+  out.flush();
+  if (!out.good()) {
+    return false;
+  }
+  out.close();
+  std::remove(filename.c_str());
+  return true;
 }
 
 bool dump_to_file(const std::string &data, const std::string &filename) {
@@ -296,7 +336,8 @@ bool encrypt(const std::string &out_filename, const std::string &key,
 
   out = BIO_push(benc, out);
 
-  if (BIO_write(out, data.c_str(), data.size()) != static_cast<int>(data.size()) ||
+  if (BIO_write(out, data.c_str(), data.size()) !=
+          static_cast<int>(data.size()) ||
       ERR_get_error() != 0) {
     perror("failed to write data to BIO");
     goto end;

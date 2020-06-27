@@ -20,7 +20,9 @@ bool encrypt(const std::string &out_filename, const std::string &key,
 bool decrypt(const std::string &in_filename, const std::string &key,
              std::string *data);
 std::string trim(const std::string &s);
+bool wipefile(const std::string &filename);
 std::string readpass();
+std::string readfile(const std::string &filename);
 std::vector<std::string> split(const std::string &s,
                                const std::string &delimiter);
 bool find(const std::string &needle, const std::string &haystack,
