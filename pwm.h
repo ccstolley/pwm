@@ -1,5 +1,3 @@
-#include <algorithm>
-#include <cctype>
 #include <cstdio>
 #include <cstring>
 #include <fstream>
@@ -16,7 +14,10 @@
 #include <vector>
 
 bool dump_to_file(const std::string &data, const std::string &filename);
-bool decrypt(const std::string &in_filename, std::string &key,
+bool save_backup(const char *filename);
+bool encrypt(const std::string &out_filename, const std::string &key,
+             const std::string &data);
+bool decrypt(const std::string &in_filename, const std::string &key,
              std::string *data);
 std::string trim(const std::string &s);
 std::string readpass();
