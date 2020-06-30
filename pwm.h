@@ -14,7 +14,7 @@
 #include <vector>
 
 bool dump_to_file(const std::string &data, const std::string &filename);
-bool save_backup(const char *filename);
+bool save_backup(const std::string &filename);
 bool encrypt(const std::string &plaintext, const std::string &key,
              std::string *ciphertext);
 bool decrypt(const std::string &ciphertext, const std::string &key,

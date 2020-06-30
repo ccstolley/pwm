@@ -9,15 +9,19 @@ void bail(const std::string &msg) {
 }
 
 #ifndef TESTING
-static const char STORE_PATH[] =
-    "/home/stolley//mystuff/personal/pwm/stolley.txt.enc";
+static const char DEFAULT_STORE_PATH[] =
+    "/home/stolley/mystuff/personal/pwm/stolley.txt.enc";
 
 int main(const int argc, const char *argv[]) {
   std::string data;
   std::string key;
+  std::string store_path(DEFAULT_STORE_PATH);
   struct ent entry;
   bool update = false;
 
+  if(const char* env_store = std::getenv("PWM_STORE")) {
+    store_path = env_store;
+  }
   if (strcmp("pwmupdate", basename(argv[0])) == 0) {
     update = true;
   }
@@ -31,34 +35,33 @@ int main(const int argc, const char *argv[]) {
   }
 
   key = readpass();
-  if (decrypt(readfile(STORE_PATH), key, &data)) {
+  if (decrypt(readfile(store_path), key, &data)) {
     if (update) {
-      const char *pwm_tmp_val = getenv("PWM_TMP");
-      std::string tmpfile;
-      if (pwm_tmp_val == nullptr) {
-        tmpfile = STORE_PATH;
-        tmpfile += ".tmp";
+      std::string tmpstore;
+      if (const char *env_tmp = std::getenv("PWM_TMP")) {
+        tmpstore = env_tmp;
       } else {
-        tmpfile = pwm_tmp_val;
+        tmpstore = store_path;
+        tmpstore += ".tmp";
       }
-      if (!dump_to_file(data, tmpfile)) {
+      if (!dump_to_file(data, tmpstore)) {
         bail("failed to write temp file.");
       }
       data.clear();
       std::string cmd("vi -S -c 'set recdir= backup=' ");
-      cmd += tmpfile;
+      cmd += tmpstore;
       if (system(cmd.c_str()) != 0) {
         bail("problem with system()");
       }
-      save_backup(STORE_PATH);
-      if (!encrypt(readfile(tmpfile), key, &data)) {
+      save_backup(store_path);
+      if (!encrypt(readfile(tmpstore), key, &data)) {
         bail("re-encrypt failed! backup saved.");
       }
       explicit_bzero(&key[0], key.size());
-      if (!wipefile(tmpfile)) {
+      if (!wipefile(tmpstore)) {
         bail("failed to wipe file.");
       }
-      if (!dump_to_file(data, STORE_PATH)) {
+      if (!dump_to_file(data, store_path)) {
         bail("failed to write new store.");
       }
     } else {
@@ -77,10 +80,10 @@ int main(const int argc, const char *argv[]) {
 }
 #endif // TESTING
 
-bool save_backup(const char *filename) {
+bool save_backup(const std::string &filename) {
   std::string bak(filename);
   bak += ".bak";
-  return std::rename(filename, bak.c_str()) == 0;
+  return std::rename(filename.c_str(), bak.c_str()) == 0;
 }
 
 std::string readfile(const std::string &filename) {
