@@ -15,10 +15,10 @@
 
 bool dump_to_file(const std::string &data, const std::string &filename);
 bool save_backup(const char *filename);
-bool encrypt(const std::string &out_filename, const std::string &key,
-             const std::string &data);
-bool decrypt(const std::string &in_filename, const std::string &key,
-             std::string *data);
+bool encrypt(const std::string &plaintext, const std::string &key,
+             std::string *ciphertext);
+bool decrypt(const std::string &ciphertext, const std::string &key,
+             std::string *plaintext);
 std::string trim(const std::string &s);
 bool wipefile(const std::string &filename);
 std::string readpass();

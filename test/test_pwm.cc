@@ -50,28 +50,18 @@ TEST_CASE("verify decrypt()") {
                            "a-\x9dL\xae\x97"
                            "0");
   const std::string key("pwmtest");
-  const char *filename = "t.enc.tmp";
-
-  std::ofstream out(filename, std::ifstream::binary);
-  REQUIRE(out.write(&encdat[0], encdat.size()));
-  REQUIRE(out.good());
-  out.close();
-
   std::string s;
-  REQUIRE(decrypt(filename, key, &s));
+  REQUIRE(decrypt(encdat, key, &s));
   REQUIRE(s == "a test crypt\n");
-  std::remove(filename);
 }
 
 TEST_CASE("verify encrypt()") {
   const std::string decdat("a test crypt\n");
   const std::string key("pwmtest");
-  const char *filename = "t.dec.tmp";
-  std::string s;
+  std::string s, r;
 
-  REQUIRE(encrypt(filename, key, decdat));
-  REQUIRE(decrypt(filename, key, &s));
-  REQUIRE(s == decdat);
+  REQUIRE(encrypt(decdat, key, &s));
+  REQUIRE(decrypt(s, key, &r));
 
-  std::remove(filename);
+  REQUIRE(r == decdat);
 }

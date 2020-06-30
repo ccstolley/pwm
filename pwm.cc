@@ -31,7 +31,7 @@ int main(const int argc, const char *argv[]) {
   }
 
   key = readpass();
-  if (decrypt(std::string(STORE_PATH), key, &data)) {
+  if (decrypt(readfile(STORE_PATH), key, &data)) {
     if (update) {
       const char *pwm_tmp_val = getenv("PWM_TMP");
       std::string tmpfile;
@@ -44,18 +44,22 @@ int main(const int argc, const char *argv[]) {
       if (!dump_to_file(data, tmpfile)) {
         bail("failed to write temp file.");
       }
+      data.clear();
       std::string cmd("vi -S -c 'set recdir= backup=' ");
       cmd += tmpfile;
       if (system(cmd.c_str()) != 0) {
         bail("problem with system()");
       }
       save_backup(STORE_PATH);
-      if (!encrypt(STORE_PATH, key, readfile(tmpfile))) {
+      if (!encrypt(readfile(tmpfile), key, &data)) {
         bail("re-encrypt failed! backup saved.");
       }
       explicit_bzero(&key[0], key.size());
       if (!wipefile(tmpfile)) {
         bail("failed to wipe file.");
+      }
+      if (!dump_to_file(data, STORE_PATH)) {
+        bail("failed to write new store.");
       }
     } else {
       explicit_bzero(&key[0], key.size());
@@ -81,6 +85,9 @@ bool save_backup(const char *filename) {
 
 std::string readfile(const std::string &filename) {
   std::ifstream in(filename, std::ios::binary | std::ios::ate);
+  if (!in) {
+    bail("failed to open file");
+  }
   auto sz = in.tellg();
   in.seekg(0);
   std::string dat(sz, '\0');
@@ -197,47 +204,31 @@ std::string readpass() {
 }
 
 /**
- * Decrypt the contents of filename and store it in data.
+ * Decrypt ciphertext with key and store it in plaintext.
  */
-bool decrypt(const std::string &in_filename, const std::string &key,
-             std::string *data) {
-  char buf[255];
-  char mbuf[sizeof MAGIC - 1];
+bool decrypt(const std::string &ciphertext, const std::string &key,
+             std::string *plaintext) {
   unsigned char dkey[EVP_MAX_KEY_LENGTH];
   unsigned char iv[EVP_MAX_IV_LENGTH];
   unsigned char salt[PKCS5_SALT_LEN];
+  int sz = 0;
+  const int hdrsz = sizeof(MAGIC) + sizeof(salt) - 1;
+  std::string s(ciphertext.size(), '\0');
 
-  BIO *in = NULL;
-  BIO *benc = NULL;
   EVP_CIPHER_CTX *ctx = NULL;
   const EVP_CIPHER *cipher = EVP_aes_256_cbc();
 
-  in = BIO_new(BIO_s_file());
-  if (in == NULL) {
+  ctx = EVP_CIPHER_CTX_new();
+  if (ctx == NULL) {
     goto end;
   }
 
-  if (in_filename.empty()) {
-    BIO_printf(bio_err, "NULL filenames not allowed.\n");
+  if (ciphertext.substr(0, strlen(MAGIC)) != std::string(MAGIC)) {
+    perror("invalid magic string");
     goto end;
   }
-
-  if (BIO_read_filename(in, in_filename.c_str()) <= 0) {
-    perror(in_filename.c_str());
-    goto end;
-  }
-
-  if (BIO_read(in, mbuf, sizeof mbuf) != sizeof mbuf ||
-      BIO_read(in, reinterpret_cast<unsigned char *>(salt), sizeof salt) !=
-          sizeof salt) {
-    BIO_printf(bio_err, "error reading input file\n");
-    goto end;
-  }
-
-  if (std::memcmp(mbuf, MAGIC, sizeof MAGIC - 1) != 0) {
-    BIO_printf(bio_err, "bad magic number\n");
-    goto end;
-  }
+  ciphertext.copy(reinterpret_cast<char *>(salt), sizeof(salt),
+                  sizeof(MAGIC) - 1);
 
   if (EVP_BytesToKey(cipher, EVP_sha256(), salt,
                      reinterpret_cast<const unsigned char *>(key.c_str()),
@@ -245,76 +236,62 @@ bool decrypt(const std::string &in_filename, const std::string &key,
     perror("failed to derive key and iv");
     goto end;
   }
-
-  if ((benc = BIO_new(BIO_f_cipher())) == NULL) {
-    goto end;
-  }
-
-  BIO_get_cipher_ctx(benc, &ctx);
 
   if (EVP_CipherInit_ex(ctx, cipher, NULL, dkey, iv, 0) != 1) {
     perror("failed to init cipher");
     goto end;
   }
 
-  in = BIO_push(benc, in);
-
-  for (;;) {
-    int inl = BIO_read(in, buf, sizeof buf);
-    if (ERR_get_error() != 0) {
-      goto end;
-    } else if (inl <= 0) {
-      break;
-    }
-    data->append(buf, inl);
+  sz = static_cast<int>(s.size());
+  if (EVP_CipherUpdate(
+          ctx, reinterpret_cast<unsigned char *>(&s[0]), &sz,
+          reinterpret_cast<const unsigned char *>(&ciphertext[hdrsz]),
+          static_cast<int>(ciphertext.size() - hdrsz)) != 1) {
+    perror("CipherUpdate() failed");
+    goto end;
   }
 
-  BIO_free_all(in);
+  plaintext->append(s, 0, sz);
+
+  if (EVP_CipherFinal_ex(ctx, reinterpret_cast<unsigned char *>(&s[0]), &sz) !=
+      1) {
+    perror("CipherFinal() failed");
+    goto end;
+  }
+
+  plaintext->append(s, 0, sz);
+
+  EVP_CIPHER_CTX_free(ctx);
   return true;
 
 end:
-  ERR_print_errors(bio_err);
-  BIO_free_all(in);
+  EVP_CIPHER_CTX_free(ctx);
   return false;
 }
 
 /**
- * Encrypt the contents of data and store it in filename.
+ * Encrypt plaintext with key and store it in ciphertext.
  */
-bool encrypt(const std::string &out_filename, const std::string &key,
-             const std::string &data) {
+bool encrypt(const std::string &plaintext, const std::string &key,
+             std::string *ciphertext) {
   unsigned char dkey[EVP_MAX_KEY_LENGTH];
   unsigned char iv[EVP_MAX_IV_LENGTH];
   unsigned char salt[PKCS5_SALT_LEN];
+  int sz = 0;
+  std::string s(plaintext.size() + EVP_MAX_IV_LENGTH, '\0');
 
-  BIO *out = NULL;
-  BIO *benc = NULL;
   EVP_CIPHER_CTX *ctx = NULL;
   const EVP_CIPHER *cipher = EVP_aes_256_cbc();
 
-  out = BIO_new(BIO_s_file());
-  if (out == NULL) {
-    goto end;
-  }
-
-  if (out_filename.empty()) {
-    BIO_printf(bio_err, "NULL filenames not allowed.\n");
-    goto end;
-  }
-
-  if (BIO_write_filename(out, const_cast<char *>(out_filename.c_str())) <= 0) {
-    perror(out_filename.c_str());
+  ctx = EVP_CIPHER_CTX_new();
+  if (ctx == NULL) {
     goto end;
   }
 
   arc4random_buf(salt, sizeof(salt));
 
-  if (BIO_write(out, MAGIC, sizeof MAGIC - 1) != sizeof MAGIC - 1 ||
-      BIO_write(out, reinterpret_cast<unsigned char *>(salt), sizeof salt) !=
-          sizeof salt) {
-    BIO_printf(bio_err, "error writing output file\n");
-    goto end;
-  }
+  ciphertext->append(MAGIC);
+  ciphertext->append(reinterpret_cast<const char *>(salt), sizeof(salt));
 
   if (EVP_BytesToKey(cipher, EVP_sha256(), salt,
                      reinterpret_cast<const unsigned char *>(key.c_str()),
@@ -323,35 +300,33 @@ bool encrypt(const std::string &out_filename, const std::string &key,
     goto end;
   }
 
-  if ((benc = BIO_new(BIO_f_cipher())) == NULL) {
-    goto end;
-  }
-
-  BIO_get_cipher_ctx(benc, &ctx);
-
   if (EVP_CipherInit_ex(ctx, cipher, NULL, dkey, iv, 1) != 1) {
     perror("failed to init cipher");
     goto end;
   }
 
-  out = BIO_push(benc, out);
-
-  if (BIO_write(out, data.c_str(), data.size()) !=
-          static_cast<int>(data.size()) ||
-      ERR_get_error() != 0) {
-    perror("failed to write data to BIO");
-    goto end;
-  }
-  if (BIO_flush(out) != 1) {
-    perror("failed to flush BIO");
+  sz = static_cast<int>(s.size());
+  if (EVP_CipherUpdate(ctx, reinterpret_cast<unsigned char *>(&s[0]), &sz,
+                       reinterpret_cast<const unsigned char *>(&plaintext[0]),
+                       static_cast<int>(plaintext.size())) != 1) {
+    perror("CipherUpdate() failed");
     goto end;
   }
 
-  BIO_free_all(out);
+  ciphertext->append(s, 0, sz);
+
+  if (EVP_CipherFinal_ex(ctx, reinterpret_cast<unsigned char *>(&s[0]), &sz) !=
+      1) {
+    perror("CipherFinal() failed");
+    goto end;
+  }
+
+  ciphertext->append(s, 0, sz);
+
+  EVP_CIPHER_CTX_free(ctx);
   return true;
 
 end:
-  ERR_print_errors(bio_err);
-  BIO_free_all(out);
+  EVP_CIPHER_CTX_free(ctx);
   return false;
 }
