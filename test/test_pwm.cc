@@ -65,3 +65,30 @@ TEST_CASE("verify encrypt()") {
 
   REQUIRE(r == decdat);
 }
+
+TEST_CASE("verify find()") {
+  const std::string dat("dog: one two three\ndragon:\ncat: four 5\nmouse: 100..z()");
+
+  struct ent e;
+
+  REQUIRE(find("dog", dat, &e));
+  REQUIRE(e.name  == "dog");
+  REQUIRE(e.meta == "one");
+  REQUIRE(e.password == "three");
+
+  memset(&e, 0, sizeof(struct ent));
+  REQUIRE(find("cat", dat, &e));
+  REQUIRE(e.name  == "cat");
+  REQUIRE(e.meta == "four");
+  REQUIRE(e.password == "5");
+
+  memset(&e, 0, sizeof(struct ent));
+  REQUIRE(find("mouse", dat, &e));
+  REQUIRE(e.name  == "mouse");
+  REQUIRE(e.meta == "");
+  REQUIRE(e.password == "100..z()");
+
+  REQUIRE_FALSE(find("lion", dat, &e));
+  REQUIRE_FALSE(find("lion", "lion", &e));
+  REQUIRE_FALSE(find("lion", ":", &e));
+}
