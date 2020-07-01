@@ -81,7 +81,7 @@ typedef uint64_t utest_uint64_t;
 #include <winbase.h>
 #pragma warning(pop)
 
-#elif defined(__linux__)
+#elif defined(__linux__) || defined(__OpenBSD__)
 
 /*
    slightly obscure include here - we need to include glibc's features.h, but
@@ -90,6 +90,10 @@ typedef uint64_t utest_uint64_t;
    glibc distributions includes features.h
 */
 #include <limits.h>
+#include <time.h>
+#if defined(__OpenBSD__)
+#define UTEST_USE_CLOCKGETTIME
+#endif
 
 #if defined(__GLIBC__) && defined(__GLIBC_MINOR__)
 #include <time.h>
@@ -165,6 +169,7 @@ typedef uint64_t utest_uint64_t;
 #define UTEST_PTR_CAST(type, x) reinterpret_cast<type>(x)
 #define UTEST_EXTERN extern "C"
 #define UTEST_NULL NULL
+#include <string>
 #else
 #define UTEST_CAST(type, x) ((type)x)
 #define UTEST_PTR_CAST(type, x) ((type)x)
@@ -196,7 +201,7 @@ static UTEST_INLINE utest_int64_t utest_ns(void) {
   QueryPerformanceFrequency(&frequency);
   return UTEST_CAST(utest_int64_t,
                     (counter.QuadPart * 1000000000) / frequency.QuadPart);
-#elif defined(__linux)
+#elif defined(__linux) || defined(__OpenBSD__)
   struct timespec ts;
   const clockid_t cid = CLOCK_REALTIME;
 #if defined(UTEST_USE_CLOCKGETTIME)
@@ -314,6 +319,16 @@ UTEST_WEAK UTEST_OVERLOADABLE void utest_type_printer(long unsigned int i) {
 UTEST_WEAK UTEST_OVERLOADABLE void utest_type_printer(const void *p);
 UTEST_WEAK UTEST_OVERLOADABLE void utest_type_printer(const void *p) {
   UTEST_PRINTF("%p", p);
+}
+
+UTEST_WEAK UTEST_OVERLOADABLE void utest_type_printer(const char *s);
+UTEST_WEAK UTEST_OVERLOADABLE void utest_type_printer(const char *s) {
+  UTEST_PRINTF("%s", s);
+}
+
+UTEST_WEAK UTEST_OVERLOADABLE void utest_type_printer(const std::string &s);
+UTEST_WEAK UTEST_OVERLOADABLE void utest_type_printer(const std::string &s) {
+  UTEST_PRINTF("%s", s.c_str());
 }
 
 /*
