@@ -13,15 +13,16 @@
 #include <sys/types.h>
 #include <vector>
 
+static bool save_backup(const std::string &filename);
+static bool wipefile(const std::string &filename);
+static std::string readpass();
+
 bool dump_to_file(const std::string &data, const std::string &filename);
-bool save_backup(const std::string &filename);
 bool encrypt(const std::string &plaintext, const std::string &key,
              std::string *ciphertext);
 bool decrypt(const std::string &ciphertext, const std::string &key,
              std::string *plaintext);
 std::string trim(const std::string &s);
-bool wipefile(const std::string &filename);
-std::string readpass();
 std::string readfile(const std::string &filename);
 std::vector<std::string> split(const std::string &s,
                                const std::string &delimiter);

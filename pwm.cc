@@ -1,14 +1,14 @@
 #include "pwm.h"
 
 static const char MAGIC[] = "Salted__";
-BIO *bio_err = NULL;
 
-void bail(const std::string &msg) {
+[[ noreturn ]] static void bail(const std::string &msg) {
   fprintf(stderr, "%s\n", msg.c_str());
   exit(1);
 }
 
 #ifndef TESTING
+static BIO *bio_err = nullptr;
 static const char DEFAULT_STORE_PATH[] =
     "/home/stolley/mystuff/personal/pwm/stolley.txt.enc";
 
@@ -93,14 +93,13 @@ std::string readfile(const std::string &filename) {
   }
   auto sz = in.tellg();
   in.seekg(0);
-  std::string dat(sz, '\0');
-  in.read(&dat[0], dat.size());
+  std::string dat(static_cast<unsigned long>(sz), '\0');
+  in.read(&dat[0], static_cast<signed long>(dat.size()));
   if (in.good() && in.gcount() == sz) {
     in.close();
     return dat;
   }
   bail("Failed to read file");
-  return nullptr;
 }
 
 bool wipefile(const std::string &filename) {
@@ -131,7 +130,7 @@ bool dump_to_file(const std::string &data, const std::string &filename) {
   if (!out) {
     bail("Unable to create temp file.");
   }
-  out.write(data.c_str(), sizeof(char) * data.size());
+  out.write(data.c_str(), static_cast<long>(sizeof(char) * data.size()));
   return out.good();
 }
 
@@ -235,7 +234,7 @@ bool decrypt(const std::string &ciphertext, const std::string &key,
 
   if (EVP_BytesToKey(cipher, EVP_sha256(), salt,
                      reinterpret_cast<const unsigned char *>(key.c_str()),
-                     strlen(key.c_str()), 1, dkey, iv) == 0) {
+                     static_cast<int>(strlen(key.c_str())), 1, dkey, iv) == 0) {
     perror("failed to derive key and iv");
     goto end;
   }
@@ -254,7 +253,7 @@ bool decrypt(const std::string &ciphertext, const std::string &key,
     goto end;
   }
 
-  plaintext->append(s, 0, sz);
+  plaintext->append(s, 0, static_cast<unsigned long>(sz));
 
   if (EVP_CipherFinal_ex(ctx, reinterpret_cast<unsigned char *>(&s[0]), &sz) !=
       1) {
@@ -262,7 +261,7 @@ bool decrypt(const std::string &ciphertext, const std::string &key,
     goto end;
   }
 
-  plaintext->append(s, 0, sz);
+  plaintext->append(s, 0, static_cast<unsigned long>(sz));
 
   EVP_CIPHER_CTX_free(ctx);
   return true;
@@ -298,7 +297,7 @@ bool encrypt(const std::string &plaintext, const std::string &key,
 
   if (EVP_BytesToKey(cipher, EVP_sha256(), salt,
                      reinterpret_cast<const unsigned char *>(key.c_str()),
-                     strlen(key.c_str()), 1, dkey, iv) == 0) {
+                     static_cast<int>(strlen(key.c_str())), 1, dkey, iv) == 0) {
     perror("failed to derive key and iv");
     goto end;
   }
@@ -316,7 +315,7 @@ bool encrypt(const std::string &plaintext, const std::string &key,
     goto end;
   }
 
-  ciphertext->append(s, 0, sz);
+  ciphertext->append(s, 0, static_cast<unsigned long>(sz));
 
   if (EVP_CipherFinal_ex(ctx, reinterpret_cast<unsigned char *>(&s[0]), &sz) !=
       1) {
@@ -324,7 +323,7 @@ bool encrypt(const std::string &plaintext, const std::string &key,
     goto end;
   }
 
-  ciphertext->append(s, 0, sz);
+  ciphertext->append(s, 0, static_cast<unsigned long>(sz));
 
   EVP_CIPHER_CTX_free(ctx);
   return true;
