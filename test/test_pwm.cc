@@ -1,5 +1,5 @@
-#include "utest.h"
 #include "pwm.h"
+#include "utest.h"
 #include <cstdio>
 
 UTEST_MAIN();
@@ -68,7 +68,8 @@ UTEST(PWMTest, verifyEncrypt) {
 }
 
 UTEST(PWMTest, verifyFind) {
-  const std::string dat("dog: one two three\ndragon:\ncat: four 5\nmouse: 100..z()");
+  const std::string dat(
+      "dog: one two three\ndragon:\ncat: four 5\nmouse: 100..z()");
 
   struct ent e;
 
@@ -79,13 +80,13 @@ UTEST(PWMTest, verifyFind) {
 
   memset(&e, 0, sizeof(struct ent));
   ASSERT_TRUE(find("cat", dat, &e));
-  ASSERT_TRUE(e.name  == "cat");
+  ASSERT_TRUE(e.name == "cat");
   ASSERT_TRUE(e.meta == "four");
   ASSERT_TRUE(e.password == "5");
 
   memset(&e, 0, sizeof(struct ent));
   ASSERT_TRUE(find("mouse", dat, &e));
-  ASSERT_TRUE(e.name  == "mouse");
+  ASSERT_TRUE(e.name == "mouse");
   ASSERT_TRUE(e.meta == "");
   ASSERT_TRUE(e.password == "100..z()");
 

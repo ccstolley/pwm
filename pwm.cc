@@ -2,8 +2,12 @@
 
 static const char MAGIC[] = "Salted__";
 
-[[ noreturn ]] static void bail(const std::string &msg) {
-  fprintf(stderr, "%s\n", msg.c_str());
+[[noreturn]] static void bail(const char *fmt, ...) {
+  va_list args;
+  va_start(args, fmt);
+  vfprintf(stderr, fmt, args);
+  fprintf(stderr, "\n");
+  va_end(args);
   exit(1);
 }
 
@@ -12,21 +16,26 @@ static BIO *bio_err = nullptr;
 static const char DEFAULT_STORE_PATH[] =
     "/home/stolley/mystuff/personal/pwm/stolley.txt.enc";
 
-int main(const int argc, const char *argv[]) {
+int main(int argc, char **argv) {
   std::string data;
   std::string key;
   std::string store_path(DEFAULT_STORE_PATH);
   struct ent entry;
-  bool update = false;
+  bool uflag = false;
+  int ch;
 
-  if(const char* env_store = std::getenv("PWM_STORE")) {
+  while ((ch = getopt(argc, argv, "u")) != -1) {
+    switch (ch) {
+    case 'u':
+      uflag = 1;
+      break;
+    default:
+      bail("usage: %s [-u] [pattern]", argv[0]);
+    }
+  }
+
+  if (const char *env_store = std::getenv("PWM_STORE")) {
     store_path = env_store;
-  }
-  if (strcmp("pwmupdate", basename(argv[0])) == 0) {
-    update = true;
-  }
-  if (!update && argc < 2) {
-    bail("Specify a search string.");
   }
 
   bio_err = BIO_new_fp(stderr, BIO_NOCLOSE);
@@ -36,7 +45,7 @@ int main(const int argc, const char *argv[]) {
 
   key = readpass();
   if (decrypt(readfile(store_path), key, &data)) {
-    if (update) {
+    if (uflag) {
       std::string tmpstore;
       if (const char *env_tmp = std::getenv("PWM_TMP")) {
         tmpstore = env_tmp;

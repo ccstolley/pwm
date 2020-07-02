@@ -11,6 +11,7 @@
 #include <string>
 #include <sys/stat.h>
 #include <sys/types.h>
+#include <unistd.h>
 #include <vector>
 
 static bool save_backup(const std::string &filename);

@@ -1,5 +1,6 @@
 pwm
 test_pwm
 *.o
+*.core
 *.tmp
 *.swp
