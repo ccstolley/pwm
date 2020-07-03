@@ -19,7 +19,6 @@ static const char DEFAULT_STORE_PATH[] =
 int main(int argc, char **argv) {
   std::string data;
   std::string key;
-  std::string store_path(DEFAULT_STORE_PATH);
   struct ent entry;
   bool update_flag = false;
   bool edit_flag = false;
@@ -29,6 +28,7 @@ int main(int argc, char **argv) {
     switch (ch) {
     case 'u':
       update_flag = 1;
+      entry.name = optarg;
       break;
     case 'e':
       edit_flag = 1;
@@ -44,10 +44,11 @@ int main(int argc, char **argv) {
     bail("-u and -e can't be combined");
   }
 
-  if (!edit_flag && argc == 0) {
+  if (!edit_flag && !update_flag && argc == 0) {
     bail("must specify a search string.");
   }
 
+  std::string store_path(DEFAULT_STORE_PATH);
   if (const char *env_store = std::getenv("PWM_STORE")) {
     store_path = env_store;
   }
@@ -60,33 +61,31 @@ int main(int argc, char **argv) {
   key = readpass();
   if (decrypt(readfile(store_path), key, &data)) {
     if (edit_flag) {
-      std::string tmpstore;
-      if (const char *env_tmp = std::getenv("PWM_TMP")) {
-        tmpstore = env_tmp;
-      } else {
-        tmpstore = store_path;
-        tmpstore += ".tmp";
+      edit(data, key, store_path);
+    } else if (update_flag) {
+      for (int i = 0; i < argc; i++) {
+        if (i > 0) {
+          entry.meta += " ";
+        }
+        entry.meta += argv[i]; // typically username
       }
-      if (!dump_to_file(data, tmpstore)) {
-        bail("failed to write temp file.");
+      entry.password = random_str(15);
+      std::string newdata;
+      if (!update(data, entry, newdata)) {
+        bail("update failed.");
       }
       data.clear();
-      std::string cmd("vi -S -c 'set recdir= backup=' ");
-      cmd += tmpstore;
-      if (system(cmd.c_str()) != 0) {
-        bail("problem with system()");
-      }
+
       save_backup(store_path);
-      if (!encrypt(readfile(tmpstore), key, &data)) {
+      if (!encrypt(newdata, key, &data)) {
         bail("re-encrypt failed! backup saved.");
       }
-      explicit_bzero(&key[0], key.size());
-      if (!wipefile(tmpstore)) {
-        bail("failed to wipe file.");
-      }
       if (!dump_to_file(data, store_path)) {
-        bail("failed to write new store.");
+        bail("failed to write updated store.");
       }
+      fprintf(stderr, "\n%s: %s\n", entry.name.c_str(), entry.meta.c_str());
+      printf("%s\n", entry.password.c_str());
+      return 0;
     } else {
       explicit_bzero(&key[0], key.size());
       if (find(argv[0], data, &entry)) {
@@ -103,8 +102,38 @@ int main(int argc, char **argv) {
 }
 #endif // TESTING
 
-bool edit(const std::string &data, const struct ent &newent,
-          std::string &revised) {
+bool edit(std::string &data, const std::string &key,
+          const std::string &store_path) {
+  std::string tmpstore;
+  if (const char *env_tmp = std::getenv("PWM_TMP")) {
+    tmpstore = env_tmp;
+  } else {
+    tmpstore = store_path + ".tmp";
+  }
+  if (!dump_to_file(data, tmpstore)) {
+    bail("failed to write temp file.");
+  }
+  data.clear();
+  std::string cmd("vi -S -c 'set recdir= backup=' ");
+  cmd += tmpstore;
+  if (system(cmd.c_str()) != 0) {
+    bail("problem with system()");
+  }
+  save_backup(store_path);
+  if (!encrypt(readfile(tmpstore), key, &data)) {
+    bail("re-encrypt failed! backup saved.");
+  }
+  if (!wipefile(tmpstore)) {
+    bail("failed to wipe file.");
+  }
+  if (!dump_to_file(data, store_path)) {
+    bail("failed to write new store.");
+  }
+  return true;
+}
+
+bool update(const std::string &data, const struct ent &newent,
+            std::string &revised) {
   std::stringstream linestream{data};
   std::stringstream editstream{};
   bool found = false;
@@ -219,7 +248,7 @@ bool parse_entry(const std::string &line, struct ent *entry) {
     entry->password = data[0];
   } else {
     entry->meta.clear();
-    for (int i = 0; i < data.size() - 1; i++) {
+    for (size_t i = 0; i < data.size() - 1; i++) {
       if (i > 0) {
         entry->meta += " ";
       }
@@ -404,4 +433,21 @@ bool encrypt(const std::string &plaintext, const std::string &key,
 end:
   EVP_CIPHER_CTX_free(ctx);
   return false;
+}
+
+std::string random_str(size_t sz) {
+  std::string s;
+  s.reserve(sz);
+  char buf[64];
+  while (s.size() < sz) {
+    arc4random_buf(buf, sizeof(buf));
+    for (size_t i = 0; i < sizeof(buf); i++) {
+      if (s.size() == sz) {
+        break;
+      } else if (std::isgraph(buf[i])) {
+        s.push_back(buf[i]);
+      }
+    }
+  }
+  return s;
 }

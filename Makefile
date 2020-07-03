@@ -1,5 +1,5 @@
 all: pwm.cc
-	clang++ -g -lz -lcrypto -pedantic -Wall -Wextra -Weverything -Wno-c++98-compat pwm.cc -o pwm
+	clang++ -g -lz -lcrypto -pedantic -Wall -Wextra pwm.cc -o pwm
 
 fmt: pwm.cc pwm.h test/test_pwm.cc
 	clang-format -i pwm.h pwm.cc test/test_pwm.cc

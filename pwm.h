@@ -29,10 +29,13 @@ std::vector<std::string> split(const std::string &s,
                                const std::string &delimiter);
 bool find(const std::string &needle, const std::string &haystack,
           struct ent *entry);
-bool edit(const std::string &data, const struct ent &newent,
-          std::string &revised);
+bool edit(std::string &data, const std::string &key,
+          const std::string &store_path);
+bool update(const std::string &data, const struct ent &newent,
+            std::string &revised);
 bool parse_entry(const std::string &line, struct ent *entry);
 std::string dump_entry(const struct ent &entry);
+std::string random_str(size_t sz);
 
 struct ent {
   std::string name;
@@ -40,5 +43,5 @@ struct ent {
   std::string password;
   bool operator==(const ent &rhs) {
     return (name == rhs.name && meta == rhs.meta && password == rhs.password);
-  };
+  }
 };

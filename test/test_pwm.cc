@@ -114,7 +114,7 @@ UTEST(PWMTest, verifyParseEntry) {
   EXPECT_TRUE(e2 == t);
 }
 
-UTEST(PWMTest, verifyEdit) {
+UTEST(PWMTest, verifyUpdate) {
   std::string dat("dog: one two\ncatdog: four thumb 5te\nmouse: 100..z()\n");
   struct ent e;
   std::string newdat;
@@ -124,14 +124,14 @@ UTEST(PWMTest, verifyEdit) {
   e.meta = "four thumb";
   e.password = "REG";
 
-  EXPECT_TRUE(edit(dat, e, newdat));
+  EXPECT_TRUE(update(dat, e, newdat));
   EXPECT_EQ("dog: one two\ncatdog: four thumb REG\nmouse: 100..z()\n", newdat);
 
   // insert
   e.name = "cat";
   e.meta = "bore";
   e.password = "SNaPz2";
-  EXPECT_TRUE(edit(dat, e, newdat));
+  EXPECT_TRUE(update(dat, e, newdat));
   EXPECT_EQ("dog: one two\ncatdog: four thumb 5te\nmouse: 100..z()\ncat: bore "
             "SNaPz2\n",
             newdat);
@@ -139,5 +139,20 @@ UTEST(PWMTest, verifyEdit) {
   // conflict
   dat = "cat: foobar\ncat: sime doase\n";
   e.name = "cat";
-  EXPECT_FALSE(edit(dat, e, newdat));
+  EXPECT_FALSE(update(dat, e, newdat));
+}
+
+UTEST(PWMTest, verifyRandomStr) {
+  std::string s1(random_str(128));
+  std::string s2(random_str(8));
+
+  EXPECT_EQ(s1.size(), 128u);
+  EXPECT_EQ(s2.size(), 8u);
+
+  for (char c : s1) {
+    EXPECT_TRUE(std::isgraph(c));
+  }
+  for (char c : s2) {
+    EXPECT_TRUE(std::isgraph(c));
+  }
 }
