@@ -75,14 +75,14 @@ UTEST(PWMTest, verifyFind) {
 
   ASSERT_TRUE(find("dog", dat, &e));
   ASSERT_EQ(e.name, "dog");
-  ASSERT_TRUE(e.meta == "one");
-  ASSERT_TRUE(e.password == "three");
+  ASSERT_EQ(e.meta, "one two");
+  ASSERT_EQ(e.password, "three");
 
   memset(&e, 0, sizeof(struct ent));
   ASSERT_TRUE(find("cat", dat, &e));
-  ASSERT_TRUE(e.name == "cat");
-  ASSERT_TRUE(e.meta == "four");
-  ASSERT_TRUE(e.password == "5");
+  ASSERT_EQ(e.name, "cat");
+  ASSERT_EQ(e.meta, "four");
+  ASSERT_EQ(e.password, "5");
 
   memset(&e, 0, sizeof(struct ent));
   ASSERT_TRUE(find("mouse", dat, &e));
@@ -93,4 +93,51 @@ UTEST(PWMTest, verifyFind) {
   ASSERT_FALSE(find("lion", dat, &e));
   ASSERT_FALSE(find("lion", "lion", &e));
   ASSERT_FALSE(find("lion", ":", &e));
+}
+
+UTEST(PWMTest, verifyDumpEntry) {
+  struct ent e1 = {"foo", "bar", "baz"};
+  struct ent e2 = {"foo", "bar beet", "baz"};
+
+  EXPECT_EQ(dump_entry(e1), "foo: bar baz\n");
+  EXPECT_EQ(dump_entry(e2), "foo: bar beet baz\n");
+}
+
+UTEST(PWMTest, verifyParseEntry) {
+  struct ent e1 = {"foo", "bar", "baz"};
+  struct ent e2 = {"cow", "bar beet", "zap"};
+  struct ent t;
+
+  EXPECT_TRUE(parse_entry("foo: bar baz\n", &t));
+  EXPECT_TRUE(e1 == t);
+  EXPECT_TRUE(parse_entry("cow: bar beet zap\n", &t));
+  EXPECT_TRUE(e2 == t);
+}
+
+UTEST(PWMTest, verifyEdit) {
+  std::string dat("dog: one two\ncatdog: four thumb 5te\nmouse: 100..z()\n");
+  struct ent e;
+  std::string newdat;
+
+  // update
+  e.name = "catdog";
+  e.meta = "four thumb";
+  e.password = "REG";
+
+  EXPECT_TRUE(edit(dat, e, newdat));
+  EXPECT_EQ("dog: one two\ncatdog: four thumb REG\nmouse: 100..z()\n", newdat);
+
+  // insert
+  e.name = "cat";
+  e.meta = "bore";
+  e.password = "SNaPz2";
+  EXPECT_TRUE(edit(dat, e, newdat));
+  EXPECT_EQ("dog: one two\ncatdog: four thumb 5te\nmouse: 100..z()\ncat: bore "
+            "SNaPz2\n",
+            newdat);
+
+  // conflict
+  dat = "cat: foobar\ncat: sime doase\n";
+  e.name = "cat";
+  EXPECT_FALSE(edit(dat, e, newdat));
 }

@@ -29,8 +29,16 @@ std::vector<std::string> split(const std::string &s,
                                const std::string &delimiter);
 bool find(const std::string &needle, const std::string &haystack,
           struct ent *entry);
+bool edit(const std::string &data, const struct ent &newent,
+          std::string &revised);
+bool parse_entry(const std::string &line, struct ent *entry);
+std::string dump_entry(const struct ent &entry);
+
 struct ent {
   std::string name;
   std::string meta;
   std::string password;
+  bool operator==(const ent &rhs) {
+    return (name == rhs.name && meta == rhs.meta && password == rhs.password);
+  };
 };

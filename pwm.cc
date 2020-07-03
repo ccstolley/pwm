@@ -21,17 +21,31 @@ int main(int argc, char **argv) {
   std::string key;
   std::string store_path(DEFAULT_STORE_PATH);
   struct ent entry;
-  bool uflag = false;
+  bool update_flag = false;
+  bool edit_flag = false;
   int ch;
 
-  while ((ch = getopt(argc, argv, "u")) != -1) {
+  while ((ch = getopt(argc, argv, "eu:")) != -1) {
     switch (ch) {
     case 'u':
-      uflag = 1;
+      update_flag = 1;
+      break;
+    case 'e':
+      edit_flag = 1;
       break;
     default:
-      bail("usage: %s [-u] [pattern]", argv[0]);
+      bail("usage: %s [-e | -u name [meta]] [pattern]", argv[0]);
     }
+  }
+  argc -= optind;
+  argv += optind;
+
+  if (update_flag && edit_flag) {
+    bail("-u and -e can't be combined");
+  }
+
+  if (!edit_flag && argc == 0) {
+    bail("must specify a search string.");
   }
 
   if (const char *env_store = std::getenv("PWM_STORE")) {
@@ -45,7 +59,7 @@ int main(int argc, char **argv) {
 
   key = readpass();
   if (decrypt(readfile(store_path), key, &data)) {
-    if (uflag) {
+    if (edit_flag) {
       std::string tmpstore;
       if (const char *env_tmp = std::getenv("PWM_TMP")) {
         tmpstore = env_tmp;
@@ -75,7 +89,7 @@ int main(int argc, char **argv) {
       }
     } else {
       explicit_bzero(&key[0], key.size());
-      if (find(argv[1], data, &entry)) {
+      if (find(argv[0], data, &entry)) {
         fprintf(stderr, "\n%s: %s\n", entry.name.c_str(), entry.meta.c_str());
         printf("%s\n", entry.password.c_str());
         return 0;
@@ -88,6 +102,39 @@ int main(int argc, char **argv) {
   return 1;
 }
 #endif // TESTING
+
+bool edit(const std::string &data, const struct ent &newent,
+          std::string &revised) {
+  std::stringstream linestream{data};
+  std::stringstream editstream{};
+  bool found = false;
+
+  for (std::string line; std::getline(linestream, line);) {
+    struct ent entry;
+    if (newent.name == line.substr(0, newent.name.size()) &&
+        parse_entry(line, &entry)) {
+      if (entry.name == newent.name) {
+        if (found) {
+          fprintf(stderr, "error: multiple matches for '%s' found.\n",
+                  newent.name.c_str());
+          return false;
+        }
+        found = true;
+        std::string s{dump_entry(newent)};
+        editstream.write(s.c_str(), s.size());
+        continue;
+      }
+    }
+    editstream.write((line + "\n").c_str(), line.size() + 1);
+  }
+  if (!found) {
+    // add
+    std::string s{dump_entry(newent)};
+    editstream.write(s.c_str(), s.size());
+  }
+  revised = editstream.str();
+  return true;
+}
 
 bool save_backup(const std::string &filename) {
   std::string bak(filename);
@@ -146,29 +193,46 @@ bool dump_to_file(const std::string &data, const std::string &filename) {
 bool find(const std::string &needle, const std::string &haystack,
           struct ent *entry) {
   std::stringstream linestream{haystack};
-  std::stringstream costream{};
   int i = 0;
 
   for (std::string line; std::getline(linestream, line); i++) {
     if (needle != line.substr(0, needle.size())) {
       continue;
     }
-    auto fields = split(line, ":");
-    if (fields.size() < 2) {
-      fprintf(stderr, "warning: missing data on line %d\n", i);
-      continue;
-    }
-    entry->name = fields[0];
-    auto data = split(fields[1], " ");
-    if (data.size() == 1) {
-      entry->password = data[0];
+    if (parse_entry(line, entry)) {
+      return true;
     } else {
-      entry->meta = data[0]; // typically username
-      entry->password = data[data.size() - 1];
+      fprintf(stderr, "warning: missing data on line %d\n", i);
     }
-    return true;
   }
   return false;
+}
+
+bool parse_entry(const std::string &line, struct ent *entry) {
+  auto fields = split(line, ":");
+  if (fields.size() < 2) {
+    return false;
+  }
+  entry->name = fields[0];
+  auto data = split(fields[1], " ");
+  if (data.size() == 1) {
+    entry->password = data[0];
+  } else {
+    entry->meta.clear();
+    for (int i = 0; i < data.size() - 1; i++) {
+      if (i > 0) {
+        entry->meta += " ";
+      }
+      entry->meta += data[i]; // typically username
+    }
+    entry->password = data[data.size() - 1];
+  }
+  return true;
+}
+
+std::string dump_entry(const struct ent &entry) {
+  std::string s(entry.name);
+  return s + ": " + entry.meta + " " + entry.password + "\n";
 }
 
 std::vector<std::string> split(const std::string &s,
