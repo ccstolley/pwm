@@ -444,7 +444,8 @@ std::string random_str(size_t sz) {
     for (size_t i = 0; i < sizeof(buf); i++) {
       if (s.size() == sz) {
         break;
-      } else if (std::isgraph(buf[i])) {
+      } else if (std::isalnum(buf[i]) || (buf[i] && std::strchr(",.-$%", buf[i]))) {
+        assert(buf[i] != '\0');
         s.push_back(buf[i]);
       }
     }

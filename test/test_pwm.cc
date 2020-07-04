@@ -150,9 +150,9 @@ UTEST(PWMTest, verifyRandomStr) {
   EXPECT_EQ(s2.size(), 8u);
 
   for (char c : s1) {
-    EXPECT_TRUE(std::isgraph(c));
+    EXPECT_TRUE(std::isalnum(c) || ispunct(c));
   }
   for (char c : s2) {
-    EXPECT_TRUE(std::isgraph(c));
+    EXPECT_TRUE(std::isalnum(c) || ispunct(c));
   }
 }
