@@ -27,11 +27,11 @@ int main(int argc, char **argv) {
   while ((ch = getopt(argc, argv, "eu:")) != -1) {
     switch (ch) {
     case 'u':
-      update_flag = 1;
+      update_flag = true;
       entry.name = optarg;
       break;
     case 'e':
-      edit_flag = 1;
+      edit_flag = true;
       break;
     default:
       bail("usage: %s [-e | -u name [meta]] [pattern]", argv[0]);
@@ -179,7 +179,7 @@ std::string readfile(const std::string &filename) {
   auto sz = in.tellg();
   in.seekg(0);
   std::string dat(static_cast<unsigned long>(sz), '\0');
-  in.read(&dat[0], static_cast<signed long>(dat.size()));
+  in.read(&dat[0], static_cast<long>(dat.size()));
   if (in.good() && in.gcount() == sz) {
     in.close();
     return dat;
@@ -230,9 +230,8 @@ bool find(const std::string &needle, const std::string &haystack,
     }
     if (parse_entry(line, entry)) {
       return true;
-    } else {
-      fprintf(stderr, "warning: missing data on line %d\n", i);
     }
+    fprintf(stderr, "warning: missing data on line %d\n", i);
   }
   return false;
 }
@@ -441,12 +440,12 @@ std::string random_str(size_t sz) {
   char buf[64];
   while (s.size() < sz) {
     arc4random_buf(buf, sizeof(buf));
-    for (size_t i = 0; i < sizeof(buf); i++) {
+    for (char c : buf) {
       if (s.size() == sz) {
         break;
-      } else if (std::isalnum(buf[i]) || (buf[i] && std::strchr(",.-$%", buf[i]))) {
-        assert(buf[i] != '\0');
-        s.push_back(buf[i]);
+      }
+      if (std::isalnum(c) || (c && std::strchr(",.-$%", c))) {
+        s.push_back(c);
       }
     }
   }
