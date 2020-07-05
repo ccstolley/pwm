@@ -20,20 +20,20 @@ static std::string readpass();
 
 bool dump_to_file(const std::string &data, const std::string &filename);
 bool encrypt(const std::string &plaintext, const std::string &key,
-             std::string *ciphertext);
+             std::string &ciphertext);
 bool decrypt(const std::string &ciphertext, const std::string &key,
-             std::string *plaintext);
+             std::string &plaintext);
 std::string trim(const std::string &s);
-std::string readfile(const std::string &filename);
+std::string read_file(const std::string &filename);
 std::vector<std::string> split(const std::string &s,
                                const std::string &delimiter);
 bool find(const std::string &needle, const std::string &haystack,
-          struct ent *entry);
+          struct ent &entry);
 bool edit(std::string &data, const std::string &key,
           const std::string &store_path);
 bool update(const std::string &data, const struct ent &newent,
             std::string &revised);
-bool parse_entry(const std::string &line, struct ent *entry);
+bool parse_entry(const std::string &line, struct ent &entry);
 std::string dump_entry(const struct ent &entry);
 std::string random_str(size_t sz);
 std::string sort_data(const std::string &data);

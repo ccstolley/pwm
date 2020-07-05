@@ -34,7 +34,7 @@ int main(int argc, char **argv) {
       edit_flag = true;
       break;
     default:
-      bail("usage: %s [-e | -u name [meta]] [pattern]", argv[0]);
+      bail("usage: %s [-e | -u name [meta]] | [pattern]", argv[0]);
     }
   }
   argc -= optind;
@@ -59,7 +59,7 @@ int main(int argc, char **argv) {
   }
 
   key = readpass();
-  if (decrypt(readfile(store_path), key, &data)) {
+  if (decrypt(read_file(store_path), key, data)) {
     if (edit_flag) {
       edit(data, key, store_path);
     } else if (update_flag) {
@@ -77,7 +77,7 @@ int main(int argc, char **argv) {
       data.clear();
 
       save_backup(store_path);
-      if (!encrypt(newdata, key, &data)) {
+      if (!encrypt(newdata, key, data)) {
         bail("re-encrypt failed! backup saved.");
       }
       if (!dump_to_file(data, store_path)) {
@@ -88,7 +88,7 @@ int main(int argc, char **argv) {
       return 0;
     } else {
       explicit_bzero(&key[0], key.size());
-      if (find(argv[0], data, &entry)) {
+      if (find(argv[0], data, entry)) {
         fprintf(stderr, "\n%s: %s\n", entry.name.c_str(), entry.meta.c_str());
         printf("%s\n", entry.password.c_str());
         return 0;
@@ -120,7 +120,7 @@ bool edit(std::string &data, const std::string &key,
     bail("problem with system()");
   }
   save_backup(store_path);
-  if (!encrypt(readfile(tmpstore), key, &data)) {
+  if (!encrypt(read_file(tmpstore), key, data)) {
     bail("re-encrypt failed! backup saved.");
   }
   if (!wipefile(tmpstore)) {
@@ -142,7 +142,7 @@ bool update(const std::string &data, const struct ent &newent,
   for (std::string line; std::getline(linestream, line);) {
     struct ent entry;
     if (newent.name == line.substr(0, newent.name.size()) &&
-        parse_entry(line, &entry)) {
+        parse_entry(line, entry)) {
       if (found) {
         if (!exact) {
           fprintf(stderr, "error: '%s' also matches '%s'.\n",
@@ -180,7 +180,7 @@ bool save_backup(const std::string &filename) {
   return std::rename(filename.c_str(), bak.c_str()) == 0;
 }
 
-std::string readfile(const std::string &filename) {
+std::string read_file(const std::string &filename) {
   std::ifstream in(filename, std::ios::binary | std::ios::ate);
   if (!in) {
     bail("failed to open file");
@@ -244,7 +244,7 @@ bool dump_to_file(const std::string &data, const std::string &filename) {
 }
 
 bool find(const std::string &needle, const std::string &haystack,
-          struct ent *entry) {
+          struct ent &entry) {
   std::stringstream linestream{haystack};
   int i = 0;
 
@@ -260,25 +260,25 @@ bool find(const std::string &needle, const std::string &haystack,
   return false;
 }
 
-bool parse_entry(const std::string &line, struct ent *entry) {
+bool parse_entry(const std::string &line, struct ent &entry) {
   auto fields = split(line, ":");
   if (fields.size() < 2) {
     fprintf(stderr, "malformed entry '%s'", line.c_str());
     return false;
   }
-  entry->name = fields[0];
+  entry.name = fields[0];
   auto data = split(fields[1], " ");
   if (data.size() == 1) {
-    entry->password = data[0];
+    entry.password = data[0];
   } else {
-    entry->meta.clear();
+    entry.meta.clear();
     for (size_t i = 0; i < data.size() - 1; i++) {
       if (i > 0) {
-        entry->meta += " ";
+        entry.meta += " ";
       }
-      entry->meta += data[i]; // typically username
+      entry.meta += data[i]; // typically username
     }
-    entry->password = data[data.size() - 1];
+    entry.password = data[data.size() - 1];
   }
   return true;
 }
@@ -336,7 +336,7 @@ std::string readpass() {
  * Decrypt ciphertext with key and store it in plaintext.
  */
 bool decrypt(const std::string &ciphertext, const std::string &key,
-             std::string *plaintext) {
+             std::string &plaintext) {
   unsigned char dkey[EVP_MAX_KEY_LENGTH];
   unsigned char iv[EVP_MAX_IV_LENGTH];
   unsigned char salt[PKCS5_SALT_LEN];
@@ -380,7 +380,7 @@ bool decrypt(const std::string &ciphertext, const std::string &key,
     goto end;
   }
 
-  plaintext->append(s, 0, static_cast<unsigned long>(sz));
+  plaintext.append(s, 0, static_cast<unsigned long>(sz));
 
   if (EVP_CipherFinal_ex(ctx, reinterpret_cast<unsigned char *>(&s[0]), &sz) !=
       1) {
@@ -388,8 +388,8 @@ bool decrypt(const std::string &ciphertext, const std::string &key,
     goto end;
   }
 
-  plaintext->append(s, 0, static_cast<unsigned long>(sz));
-  *plaintext = sort_data(*plaintext);
+  plaintext.append(s, 0, static_cast<unsigned long>(sz));
+  plaintext = sort_data(plaintext);
 
   EVP_CIPHER_CTX_free(ctx);
   return true;
@@ -403,7 +403,7 @@ end:
  * Encrypt plaintext with key and store it in ciphertext.
  */
 bool encrypt(const std::string &plaintext, const std::string &key,
-             std::string *ciphertext) {
+             std::string &ciphertext) {
   unsigned char dkey[EVP_MAX_KEY_LENGTH];
   unsigned char iv[EVP_MAX_IV_LENGTH];
   unsigned char salt[PKCS5_SALT_LEN];
@@ -420,8 +420,8 @@ bool encrypt(const std::string &plaintext, const std::string &key,
 
   arc4random_buf(salt, sizeof(salt));
 
-  ciphertext->append(MAGIC);
-  ciphertext->append(reinterpret_cast<const char *>(salt), sizeof(salt));
+  ciphertext.append(MAGIC);
+  ciphertext.append(reinterpret_cast<const char *>(salt), sizeof(salt));
 
   if (EVP_BytesToKey(cipher, EVP_sha256(), salt,
                      reinterpret_cast<const unsigned char *>(key.c_str()),
@@ -443,7 +443,7 @@ bool encrypt(const std::string &plaintext, const std::string &key,
     goto end;
   }
 
-  ciphertext->append(s, 0, static_cast<unsigned long>(sz));
+  ciphertext.append(s, 0, static_cast<unsigned long>(sz));
 
   if (EVP_CipherFinal_ex(ctx, reinterpret_cast<unsigned char *>(&s[0]), &sz) !=
       1) {
@@ -451,7 +451,7 @@ bool encrypt(const std::string &plaintext, const std::string &key,
     goto end;
   }
 
-  ciphertext->append(s, 0, static_cast<unsigned long>(sz));
+  ciphertext.append(s, 0, static_cast<unsigned long>(sz));
 
   EVP_CIPHER_CTX_free(ctx);
   return true;
@@ -471,7 +471,7 @@ std::string random_str(size_t sz) {
       if (s.size() == sz) {
         break;
       }
-      if (std::isalnum(c) || (c && std::strchr(",.-$%", c))) {
+      if (std::isalnum(c) || (c && std::strchr(",.-$%", c) != nullptr)) {
         s.push_back(c);
       }
     }

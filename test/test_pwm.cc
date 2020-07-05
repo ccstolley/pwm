@@ -52,7 +52,7 @@ UTEST(PWMTest, verifyDecrypt) {
                            "0");
   const std::string key("pwmtest");
   std::string s;
-  ASSERT_TRUE(decrypt(encdat, key, &s));
+  ASSERT_TRUE(decrypt(encdat, key, s));
   ASSERT_EQ(s, "a test crypt\n");
 }
 
@@ -61,8 +61,8 @@ UTEST(PWMTest, verifyEncrypt) {
   const std::string key("pwmtest");
   std::string s, r;
 
-  ASSERT_TRUE(encrypt(decdat, key, &s));
-  ASSERT_TRUE(decrypt(s, key, &r));
+  ASSERT_TRUE(encrypt(decdat, key, s));
+  ASSERT_TRUE(decrypt(s, key, r));
 
   ASSERT_EQ(r, decdat);
 }
@@ -73,26 +73,26 @@ UTEST(PWMTest, verifyFind) {
 
   struct ent e;
 
-  ASSERT_TRUE(find("dog", dat, &e));
+  ASSERT_TRUE(find("dog", dat, e));
   ASSERT_EQ(e.name, "dog");
   ASSERT_EQ(e.meta, "one two");
   ASSERT_EQ(e.password, "three");
 
   memset(&e, 0, sizeof(struct ent));
-  ASSERT_TRUE(find("cat", dat, &e));
+  ASSERT_TRUE(find("cat", dat, e));
   ASSERT_EQ(e.name, "cat");
   ASSERT_EQ(e.meta, "four");
   ASSERT_EQ(e.password, "5");
 
   memset(&e, 0, sizeof(struct ent));
-  ASSERT_TRUE(find("mouse", dat, &e));
+  ASSERT_TRUE(find("mouse", dat, e));
   ASSERT_TRUE(e.name == "mouse");
   ASSERT_TRUE(e.meta == "");
   ASSERT_TRUE(e.password == "100..z()");
 
-  ASSERT_FALSE(find("lion", dat, &e));
-  ASSERT_FALSE(find("lion", "lion", &e));
-  ASSERT_FALSE(find("lion", ":", &e));
+  ASSERT_FALSE(find("lion", dat, e));
+  ASSERT_FALSE(find("lion", "lion", e));
+  ASSERT_FALSE(find("lion", ":", e));
 }
 
 UTEST(PWMTest, verifyDumpEntry) {
@@ -108,9 +108,9 @@ UTEST(PWMTest, verifyParseEntry) {
   struct ent e2 = {"cow", "bar beet", "zap"};
   struct ent t;
 
-  EXPECT_TRUE(parse_entry("foo: bar baz\n", &t));
+  EXPECT_TRUE(parse_entry("foo: bar baz\n", t));
   EXPECT_TRUE(e1 == t);
-  EXPECT_TRUE(parse_entry("cow: bar beet zap\n", &t));
+  EXPECT_TRUE(parse_entry("cow: bar beet zap\n", t));
   EXPECT_TRUE(e2 == t);
 }
 
