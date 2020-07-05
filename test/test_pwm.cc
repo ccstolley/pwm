@@ -144,9 +144,17 @@ UTEST(PWMTest, verifyUpdate) {
             "SNaPz2\n",
             newdat);
 
-  // conflict -- maybe fix this
-  dat = "coolman: snapsids biItNYeU7B4.V8-\ncool: vstb'76t8H<sFUB\n";
+  // conflict but exact match
+  dat = "cool: snapsids biItNYeU7B4.V8-\ncoolman: vstb'76t8H<sFUB\n";
   e.name = "cool";
+  e.password = "newpass";
+  e.meta.clear();
+  EXPECT_TRUE(update(dat, e, newdat));
+  EXPECT_EQ(newdat, "cool: snapsids newpass\ncoolman: vstb'76t8H<sFUB\n");
+
+  // conflict but no exact match
+  dat = "cool: snapsids biItNYeU7B4.V8-\ncoolman: vstb'76t8H<sFUB\n";
+  e.name = "coo";
   EXPECT_FALSE(update(dat, e, newdat));
 }
 
@@ -163,4 +171,12 @@ UTEST(PWMTest, verifyRandomStr) {
   for (char c : s2) {
     EXPECT_TRUE(std::isalnum(c) || ispunct(c));
   }
+}
+
+UTEST(PWMTest, verifySortData) {
+  std::string dat("dog: one two\ncatdog: four thumb 5te\nmouse: 100..z()\ncat: "
+                  "foobar baz\n");
+  EXPECT_EQ("cat: foobar baz\ncatdog: four thumb 5te\ndog: one two\nmouse: "
+            "100..z()\n",
+            sort_data(dat));
 }

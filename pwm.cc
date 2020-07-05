@@ -137,26 +137,31 @@ bool update(const std::string &data, const struct ent &newent,
   std::stringstream linestream{data};
   std::stringstream editstream{};
   bool found = false;
+  bool exact = false;
 
   for (std::string line; std::getline(linestream, line);) {
     struct ent entry;
     if (newent.name == line.substr(0, newent.name.size()) &&
         parse_entry(line, &entry)) {
-      fprintf(stderr, "[old] %s: %s\n", entry.name.c_str(),
-              entry.password.c_str());
       if (found) {
-        fprintf(stderr, "error: multiple matches for '%s' found.\n",
-                newent.name.c_str());
-        return false;
+        if (!exact) {
+          fprintf(stderr, "error: '%s' also matches '%s'.\n",
+                  entry.name.c_str(), newent.name.c_str());
+          return false;
+        }
+      } else {
+        fprintf(stderr, "[old] %s: %s\n", entry.name.c_str(),
+                entry.password.c_str());
+        exact = newent.name == entry.name;
+        found = true;
+        if (!newent.meta.empty()) {
+          entry.meta = newent.meta;
+        }
+        entry.password = newent.password;
+        std::string s{dump_entry(entry)};
+        editstream.write(s.c_str(), s.size());
+        continue;
       }
-      found = true;
-      if (!newent.meta.empty()) {
-        entry.meta = newent.meta;
-      }
-      entry.password = newent.password;
-      std::string s{dump_entry(entry)};
-      editstream.write(s.c_str(), s.size());
-      continue;
     }
     editstream.write((line + "\n").c_str(), line.size() + 1);
   }
@@ -189,6 +194,21 @@ std::string readfile(const std::string &filename) {
     return dat;
   }
   bail("Failed to read file");
+}
+
+std::string sort_data(const std::string &data) {
+  std::vector<std::string> datav;
+  std::stringstream linestream{data};
+
+  for (std::string line; std::getline(linestream, line);) {
+    datav.push_back(line);
+  }
+  std::sort(datav.begin(), datav.end());
+
+  std::ostringstream outs;
+  std::copy(datav.begin(), datav.end(),
+            std::ostream_iterator<std::string>(outs, "\n"));
+  return outs.str();
 }
 
 bool wipefile(const std::string &filename) {
@@ -369,6 +389,7 @@ bool decrypt(const std::string &ciphertext, const std::string &key,
   }
 
   plaintext->append(s, 0, static_cast<unsigned long>(sz));
+  *plaintext = sort_data(*plaintext);
 
   EVP_CIPHER_CTX_free(ctx);
   return true;
