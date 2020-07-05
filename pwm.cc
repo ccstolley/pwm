@@ -142,17 +142,21 @@ bool update(const std::string &data, const struct ent &newent,
     struct ent entry;
     if (newent.name == line.substr(0, newent.name.size()) &&
         parse_entry(line, &entry)) {
-      if (entry.name == newent.name) {
-        if (found) {
-          fprintf(stderr, "error: multiple matches for '%s' found.\n",
-                  newent.name.c_str());
-          return false;
-        }
-        found = true;
-        std::string s{dump_entry(newent)};
-        editstream.write(s.c_str(), s.size());
-        continue;
+      fprintf(stderr, "[old] %s: %s\n", entry.name.c_str(),
+              entry.password.c_str());
+      if (found) {
+        fprintf(stderr, "error: multiple matches for '%s' found.\n",
+                newent.name.c_str());
+        return false;
       }
+      found = true;
+      if (!newent.meta.empty()) {
+        entry.meta = newent.meta;
+      }
+      entry.password = newent.password;
+      std::string s{dump_entry(entry)};
+      editstream.write(s.c_str(), s.size());
+      continue;
     }
     editstream.write((line + "\n").c_str(), line.size() + 1);
   }
@@ -239,6 +243,7 @@ bool find(const std::string &needle, const std::string &haystack,
 bool parse_entry(const std::string &line, struct ent *entry) {
   auto fields = split(line, ":");
   if (fields.size() < 2) {
+    fprintf(stderr, "malformed entry '%s'", line.c_str());
     return false;
   }
   entry->name = fields[0];
@@ -260,7 +265,8 @@ bool parse_entry(const std::string &line, struct ent *entry) {
 
 std::string dump_entry(const struct ent &entry) {
   std::string s(entry.name);
-  return s + ": " + entry.meta + " " + entry.password + "\n";
+  return s + ": " + (entry.meta.empty() ? "" : entry.meta + " ") +
+         entry.password + "\n";
 }
 
 std::vector<std::string> split(const std::string &s,

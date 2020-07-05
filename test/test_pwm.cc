@@ -127,18 +127,26 @@ UTEST(PWMTest, verifyUpdate) {
   EXPECT_TRUE(update(dat, e, newdat));
   EXPECT_EQ("dog: one two\ncatdog: four thumb REG\nmouse: 100..z()\n", newdat);
 
+  // incomplete update
+  e.name = "catd";
+  e.meta.clear();
+  e.password = "REG";
+
+  EXPECT_TRUE(update(dat, e, newdat));
+  EXPECT_EQ("dog: one two\ncatdog: four thumb REG\nmouse: 100..z()\n", newdat);
+
   // insert
-  e.name = "cat";
+  e.name = "pig";
   e.meta = "bore";
   e.password = "SNaPz2";
   EXPECT_TRUE(update(dat, e, newdat));
-  EXPECT_EQ("dog: one two\ncatdog: four thumb 5te\nmouse: 100..z()\ncat: bore "
+  EXPECT_EQ("dog: one two\ncatdog: four thumb 5te\nmouse: 100..z()\npig: bore "
             "SNaPz2\n",
             newdat);
 
-  // conflict
-  dat = "cat: foobar\ncat: sime doase\n";
-  e.name = "cat";
+  // conflict -- maybe fix this
+  dat = "coolman: snapsids biItNYeU7B4.V8-\ncool: vstb'76t8H<sFUB\n";
+  e.name = "cool";
   EXPECT_FALSE(update(dat, e, newdat));
 }
 
