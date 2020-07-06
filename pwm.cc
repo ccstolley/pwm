@@ -237,7 +237,7 @@ bool dump_to_file(const std::string &data, const std::string &filename) {
 
   std::ofstream out(filename);
   if (!out) {
-    bail("Unable to create temp file.");
+    return false;
   }
   out.write(data.c_str(), static_cast<long>(sizeof(char) * data.size()));
   return out.good();

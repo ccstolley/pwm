@@ -18,16 +18,21 @@ UTEST(PWMTest, verifyDumpToFile) {
   ASSERT_TRUE(in.read(&s[0], size));
   ASSERT_EQ(s, data1);
   remove(filename.c_str());
+
+  EXPECT_FALSE(dump_to_file(data1, "sjiaser/dfais0asa"));
+  EXPECT_FALSE(dump_to_file(data1, "/root/foobar"));
 }
 
 UTEST(PWMTest, verifyTrim) {
   std::vector<std::string> testcases{"  a space",   "a space  ", "  a space  ",
                                      "\ta space  ", "a space\n", "a space"};
-
   for (const auto &t : testcases) {
     EXPECT_EQ(trim(t), "a space");
   }
   EXPECT_EQ(trim("   \n\t"), "");
+  EXPECT_EQ(trim(""), "");
+  EXPECT_EQ(trim("\n"), "");
+  EXPECT_EQ(trim("\n "), "");
 }
 
 UTEST(PWMTest, verifySplit) {
