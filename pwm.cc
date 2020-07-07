@@ -203,7 +203,10 @@ std::string sort_data(const std::string &data) {
   for (std::string line; std::getline(linestream, line);) {
     datav.push_back(line);
   }
-  std::sort(datav.begin(), datav.end());
+  std::sort(datav.begin(), datav.end(),
+            [](const std::string &a, const std::string &b) {
+              return a.substr(0, a.find(":")) < b.substr(0, b.find(":"));
+            });
 
   std::ostringstream outs;
   std::copy(datav.begin(), datav.end(),

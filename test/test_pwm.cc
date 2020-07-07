@@ -184,4 +184,10 @@ UTEST(PWMTest, verifySortData) {
   EXPECT_EQ("cat: foobar baz\ncatdog: four thumb 5te\ndog: one two\nmouse: "
             "100..z()\n",
             sort_data(dat));
+
+  dat = "dog: foo bar\n"
+        "dog1: doo zar\n"
+        "dog2: doo zar\n";
+
+  EXPECT_EQ(sort_data(dat), dat);
 }
