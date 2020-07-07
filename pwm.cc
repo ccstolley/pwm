@@ -250,23 +250,33 @@ bool find(const std::string &needle, const std::string &haystack,
           struct ent &entry) {
   std::stringstream linestream{haystack};
   int i = 0;
+  bool found = false;
+  bool exact = false;
+  struct ent match;
 
   for (std::string line; std::getline(linestream, line); i++) {
-    if (needle != line.substr(0, needle.size())) {
+    if (needle != line.substr(0, needle.size()) || !parse_entry(line, match)) {
       continue;
     }
-    if (parse_entry(line, entry)) {
-      return true;
+    if (found) {
+      if (!exact) {
+        fprintf(stderr, "error: '%s' also matches '%s'.\n", match.name.c_str(),
+                needle.c_str());
+        return false;
+      }
+    } else {
+      exact = needle == match.name;
+      found = true;
+      entry = match;
     }
-    fprintf(stderr, "warning: missing data on line %d\n", i);
   }
-  return false;
+  return found;
 }
 
 bool parse_entry(const std::string &line, struct ent &entry) {
   auto fields = split(line, ":");
   if (fields.size() < 2) {
-    fprintf(stderr, "malformed entry '%s'", line.c_str());
+    fprintf(stderr, "malformed entry '%s'\n", line.c_str());
     return false;
   }
   entry.name = fields[0];

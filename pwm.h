@@ -45,4 +45,9 @@ struct ent {
   bool operator==(const ent &rhs) {
     return (name == rhs.name && meta == rhs.meta && password == rhs.password);
   }
+  void clear() {
+    name.clear();
+    meta.clear();
+    password.clear();
+  }
 };
