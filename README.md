@@ -4,9 +4,9 @@ PWM - a simple password manager
 `pwm` stores passwords in an encrypted file on disk and provides a simple interface for retrieving or updating them.
 
 ```
-usage: pwm [-e | -u name [meta]] | [pattern]
+usage: pwm [-d | -u name [meta]] | [pattern]
 
-       -e   (edit mode) will open the entire password collection in vi
+       -d   (dump mode) will dump the entire password collection to stderr.
        -u   (update mode) will add or update an existing entry in the password store.
 ```
 
