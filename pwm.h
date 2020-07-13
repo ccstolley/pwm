@@ -15,7 +15,6 @@
 #include <vector>
 
 static bool save_backup(const std::string &filename);
-static bool wipefile(const std::string &filename);
 static std::string readpass();
 
 bool dump_to_file(const std::string &data, const std::string &filename);
@@ -29,8 +28,7 @@ std::vector<std::string> split(const std::string &s,
                                const std::string &delimiter);
 bool find(const std::string &needle, const std::string &haystack,
           struct ent &entry);
-bool edit(std::string &data, const std::string &key,
-          const std::string &store_path);
+bool dump(const std::string &data);
 bool update(const std::string &data, const struct ent &newent,
             std::string &revised);
 bool parse_entry(const std::string &line, struct ent &entry);

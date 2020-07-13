@@ -21,31 +21,41 @@ int main(int argc, char **argv) {
   std::string key;
   struct ent entry;
   bool update_flag = false;
-  bool edit_flag = false;
+  bool dump_flag = false;
   int ch;
 
-  while ((ch = getopt(argc, argv, "eu:")) != -1) {
+  while ((ch = getopt(argc, argv, "du:")) != -1) {
     switch (ch) {
     case 'u':
       update_flag = true;
       entry.name = optarg;
       break;
-    case 'e':
-      edit_flag = true;
+    case 'd':
+      dump_flag = true;
       break;
     default:
-      bail("usage: %s [-e | -u name [meta]] | [pattern]", argv[0]);
+      bail("usage: %s [-d | -u name [meta]] | [pattern]", argv[0]);
     }
   }
   argc -= optind;
   argv += optind;
 
-  if (update_flag && edit_flag) {
-    bail("-u and -e can't be combined");
+  if (update_flag && dump_flag) {
+    bail("-u and -d can't be combined");
   }
 
-  if (!edit_flag && !update_flag && argc == 0) {
+  if (!dump_flag && !update_flag && argc == 0) {
     bail("must specify a search string.");
+  }
+
+  if (update_flag) {
+    if (pledge("stdio tty cpath rpath wpath", NULL) != 0) {
+      bail("pledge(2) failed at %d.", __LINE__);
+    }
+  } else {
+    if (pledge("stdio tty rpath", NULL) != 0) {
+      bail("pledge(2) failed at %d.", __LINE__);
+    }
   }
 
   std::string store_path(DEFAULT_STORE_PATH);
@@ -60,8 +70,9 @@ int main(int argc, char **argv) {
 
   key = readpass();
   if (decrypt(read_file(store_path), key, data)) {
-    if (edit_flag) {
-      edit(data, key, store_path);
+    if (dump_flag) {
+      explicit_bzero(&key[0], key.size());
+      dump(data);
     } else if (update_flag) {
       for (int i = 0; i < argc; i++) {
         if (i > 0) {
@@ -80,6 +91,7 @@ int main(int argc, char **argv) {
       if (!encrypt(newdata, key, data)) {
         bail("re-encrypt failed! backup saved.");
       }
+      explicit_bzero(&key[0], key.size());
       if (!dump_to_file(data, store_path)) {
         bail("failed to write updated store.");
       }
@@ -102,32 +114,10 @@ int main(int argc, char **argv) {
 }
 #endif // TESTING
 
-bool edit(std::string &data, const std::string &key,
-          const std::string &store_path) {
-  std::string tmpstore;
-  if (const char *env_tmp = std::getenv("PWM_TMP")) {
-    tmpstore = env_tmp;
-  } else {
-    tmpstore = store_path + ".tmp";
-  }
-  if (!dump_to_file(data, tmpstore)) {
-    bail("failed to write temp file.");
-  }
-  data.clear();
-  std::string cmd("vi -S -c 'set recdir= backup=' ");
-  cmd += tmpstore;
-  if (system(cmd.c_str()) != 0) {
-    bail("problem with system()");
-  }
-  save_backup(store_path);
-  if (!encrypt(read_file(tmpstore), key, data)) {
-    bail("re-encrypt failed! backup saved.");
-  }
-  if (!wipefile(tmpstore)) {
-    bail("failed to wipe file.");
-  }
-  if (!dump_to_file(data, store_path)) {
-    bail("failed to write new store.");
+bool dump(const std::string &data) {
+  std::stringstream linestream{data};
+  for (std::string line; std::getline(linestream, line);) {
+    fprintf(stderr, "%s\n", line.c_str());
   }
   return true;
 }
@@ -212,27 +202,6 @@ std::string sort_data(const std::string &data) {
   std::copy(datav.begin(), datav.end(),
             std::ostream_iterator<std::string>(outs, "\n"));
   return outs.str();
-}
-
-bool wipefile(const std::string &filename) {
-  char buf[64];
-  std::ifstream::pos_type sz = 0;
-  {
-    std::ifstream in(filename, std::ifstream::ate | std::ifstream::binary);
-    sz = in.tellg();
-  }
-  std::ofstream out(filename, std::ios::binary);
-  while (sz > out.tellp()) {
-    arc4random_buf(buf, sizeof(buf));
-    out.write(buf, sizeof(buf));
-  }
-  out.flush();
-  if (!out.good()) {
-    return false;
-  }
-  out.close();
-  std::remove(filename.c_str());
-  return true;
 }
 
 bool dump_to_file(const std::string &data, const std::string &filename) {
