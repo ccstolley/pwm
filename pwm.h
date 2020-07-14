@@ -35,6 +35,7 @@ bool parse_entry(const std::string &line, struct ent &entry);
 std::string dump_entry(const struct ent &entry);
 std::string random_str(size_t sz);
 std::string sort_data(const std::string &data);
+void check_perms(const char *path);
 
 struct ent {
   std::string name;

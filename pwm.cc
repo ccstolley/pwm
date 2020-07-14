@@ -62,6 +62,7 @@ int main(int argc, char **argv) {
   if (const char *env_store = std::getenv("PWM_STORE")) {
     store_path = env_store;
   }
+  check_perms(store_path.c_str());
 
   bio_err = BIO_new_fp(stderr, BIO_NOCLOSE);
   if (bio_err == NULL) {
@@ -169,10 +170,20 @@ bool save_backup(const std::string &filename) {
   return std::rename(filename.c_str(), bak.c_str()) == 0;
 }
 
+void check_perms(const char *path) {
+  struct stat sb;
+  if (stat(path, &sb) == -1) {
+    bail(path);
+  }
+  if ((sb.st_mode & S_IRWXG) || (sb.st_mode & S_IRWXO)) {
+    bail("%s\n   must be read/writeable by owner only.", path);
+  }
+}
+
 std::string read_file(const std::string &filename) {
   std::ifstream in(filename, std::ios::binary | std::ios::ate);
   if (!in) {
-    bail("failed to open file");
+    bail("failed to open file '%s'", filename.c_str());
   }
   auto sz = in.tellg();
   in.seekg(0);
