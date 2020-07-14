@@ -10,6 +10,17 @@ usage: pwm [-d | -u name [meta]] | [pattern]
        -u   (update mode) will add or update an existing entry in the password store.
 ```
 
+Before any operation you must first provide the master passphrase.
+The master passphrase is set during initialization (not yet
+implemented). A manual initialization can be achieved like so:
+
+```
+ echo "foo: bar" > store
+ openssl enc -salt -e -aes-256-cbc -in store -out store.enc
+ rm store
+ export PWM_STORE=`pwd`/store.enc
+```
+
 Examples
 --
 
