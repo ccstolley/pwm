@@ -69,48 +69,47 @@ int main(int argc, char **argv) {
   }
 
   key = readpass();
-  if (decrypt(read_file(store_path), key, data)) {
-    if (dump_flag) {
-      explicit_bzero(&key[0], key.size());
-      dump(data);
-    } else if (update_flag) {
-      for (int i = 0; i < argc; i++) {
-        if (i > 0) {
-          entry.meta += " ";
-        }
-        entry.meta += argv[i]; // typically username
+  if (!decrypt(read_file(store_path), key, data)) {
+    fprintf(stderr, "Decrypt failed\n");
+    return 1;
+  }
+  if (dump_flag) {
+    explicit_bzero(&key[0], key.size());
+    dump(data);
+  } else if (update_flag) {
+    for (int i = 0; i < argc; i++) {
+      if (i > 0) {
+        entry.meta += " ";
       }
-      entry.password = random_str(15);
-      std::string newdata;
-      if (!update(data, entry, newdata)) {
-        bail("update failed.");
-      }
-      data.clear();
+      entry.meta += argv[i]; // typically username
+    }
+    entry.password = random_str(15);
+    std::string newdata;
+    if (!update(data, entry, newdata)) {
+      bail("update failed.");
+    }
+    data.clear();
 
-      save_backup(store_path);
-      if (!encrypt(newdata, key, data)) {
-        bail("re-encrypt failed! backup saved.");
-      }
-      explicit_bzero(&key[0], key.size());
-      if (!dump_to_file(data, store_path)) {
-        bail("failed to write updated store.");
-      }
+    save_backup(store_path);
+    if (!encrypt(newdata, key, data)) {
+      bail("re-encrypt failed! backup saved.");
+    }
+    explicit_bzero(&key[0], key.size());
+    if (!dump_to_file(data, store_path)) {
+      bail("failed to write updated store.");
+    }
+    fprintf(stderr, "\n%s: %s\n", entry.name.c_str(), entry.meta.c_str());
+    printf("%s\n", entry.password.c_str());
+  } else {
+    explicit_bzero(&key[0], key.size());
+    if (find(argv[0], data, entry)) {
       fprintf(stderr, "\n%s: %s\n", entry.name.c_str(), entry.meta.c_str());
       printf("%s\n", entry.password.c_str());
-      return 0;
     } else {
-      explicit_bzero(&key[0], key.size());
-      if (find(argv[0], data, entry)) {
-        fprintf(stderr, "\n%s: %s\n", entry.name.c_str(), entry.meta.c_str());
-        printf("%s\n", entry.password.c_str());
-        return 0;
-      }
       fprintf(stderr, "Not found.\n");
     }
-  } else {
-    fprintf(stderr, "Decrypt failed\n");
   }
-  return 1;
+  return 0;
 }
 #endif // TESTING
 
