@@ -84,7 +84,7 @@ int main(int argc, char **argv) {
     }
     fprintf(stderr, "Initializing new password store.\n");
     key = readpass("set root passphrase: ");
-    if (key !=  readpass(" confirm passphrase: ")) {
+    if (key != readpass(" confirm passphrase: ")) {
       bail("passwords didn't match.");
     }
   } else {

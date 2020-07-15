@@ -13,6 +13,9 @@ The first time `pwm` is run in update mode, it will initialize a
 new encrypted file for storage and you will be prompted to set a
 passphrase.
 
+The default location of the store is `${HOME}/.pwmstore`
+but can be overridden in the environment by setting `PWM_STORE`.
+
 Examples
 --
 
