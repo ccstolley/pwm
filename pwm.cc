@@ -62,17 +62,29 @@ int main(int argc, char **argv) {
   if (const char *env_store = std::getenv("PWM_STORE")) {
     store_path = env_store;
   }
-  check_perms(store_path.c_str());
 
   bio_err = BIO_new_fp(stderr, BIO_NOCLOSE);
   if (bio_err == NULL) {
     bail("failed to initialise bio_err");
   }
 
-  key = readpass();
-  if (!decrypt(read_file(store_path), key, data)) {
-    fprintf(stderr, "Decrypt failed\n");
-    return 1;
+  auto ciphertext = read_file(store_path);
+  if (ciphertext.size() == 0) {
+    if (!update_flag) {
+      bail("missing or corrupt store: %s", store_path.c_str());
+    }
+    fprintf(stderr, "Initializing new password store.\n");
+    key = readpass("set root passphrase: ");
+    if (key !=  readpass(" confirm passphrase: ")) {
+      bail("passwords didn't match.");
+    }
+  } else {
+    check_perms(store_path.c_str());
+    key = readpass("passphrase: ");
+    if (!decrypt(ciphertext, key, data)) {
+      fprintf(stderr, "Decrypt failed\n");
+      return 1;
+    }
   }
   if (dump_flag) {
     explicit_bzero(&key[0], key.size());
@@ -173,7 +185,7 @@ bool save_backup(const std::string &filename) {
 void check_perms(const char *path) {
   struct stat sb;
   if (stat(path, &sb) == -1) {
-    bail(path);
+    bail("no such file: %s", path);
   }
   if ((sb.st_mode & S_IRWXG) || (sb.st_mode & S_IRWXO)) {
     bail("%s\n   must be read/writeable by owner only.", path);
@@ -183,7 +195,7 @@ void check_perms(const char *path) {
 std::string read_file(const std::string &filename) {
   std::ifstream in(filename, std::ios::binary | std::ios::ate);
   if (!in) {
-    bail("failed to open file '%s'", filename.c_str());
+    return "";
   }
   auto sz = in.tellg();
   in.seekg(0);
@@ -316,9 +328,9 @@ std::string trim(const std::string &s) {
           .base());
 }
 
-std::string readpass() {
+std::string readpass(const std::string &prompt) {
   std::string key(EVP_MAX_KEY_LENGTH, '\0');
-  if (readpassphrase("passphrase: ", &key[0], key.size(), 0) == NULL) {
+  if (readpassphrase(prompt.c_str(), &key[0], key.size(), 0) == NULL) {
     bail("failed to read passphrase");
   }
   return key;

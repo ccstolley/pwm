@@ -15,7 +15,7 @@
 #include <vector>
 
 static bool save_backup(const std::string &filename);
-static std::string readpass();
+static std::string readpass(const std::string &prompt);
 
 bool dump_to_file(const std::string &data, const std::string &filename);
 bool encrypt(const std::string &plaintext, const std::string &key,
