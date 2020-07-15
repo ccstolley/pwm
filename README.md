@@ -9,17 +9,9 @@ usage: pwm [-d | -u name [meta]] | [pattern]
        -d   (dump mode) will dump the entire password collection to stderr.
        -u   (update mode) will add or update an existing entry in the password store.
 ```
-
-Before any operation you must first provide the master passphrase.
-The master passphrase is set during initialization (not yet
-implemented). A manual initialization can be achieved like so:
-
-```
- echo "foo: bar" > store
- openssl enc -salt -e -aes-256-cbc -in store -out store.enc
- rm store
- export PWM_STORE=`pwd`/store.enc
-```
+The first time `pwm` is run in update mode, it will initialize a
+new encrypted file for storage and you will be prompted to set a
+passphrase.
 
 Examples
 --
