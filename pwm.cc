@@ -13,8 +13,15 @@ static const char MAGIC[] = "Salted__";
 
 #ifndef TESTING
 static BIO *bio_err = nullptr;
-static const char DEFAULT_STORE_PATH[] =
-    "/home/stolley/mystuff/personal/pwm/stolley.txt.enc";
+static std::string default_store_path() {
+  const char *home = std::getenv("HOME");
+  if (home == nullptr) {
+    home = "";
+  }
+  std::string path{home};
+  path += "/.pwmstore";
+  return path;
+}
 
 int main(int argc, char **argv) {
   std::string data;
@@ -58,9 +65,11 @@ int main(int argc, char **argv) {
     }
   }
 
-  std::string store_path(DEFAULT_STORE_PATH);
+  std::string store_path;
   if (const char *env_store = std::getenv("PWM_STORE")) {
     store_path = env_store;
+  } else {
+    store_path = default_store_path();
   }
 
   bio_err = BIO_new_fp(stderr, BIO_NOCLOSE);
