@@ -28,11 +28,16 @@ int main(int argc, char **argv) {
   std::string key;
   struct ent entry;
   bool update_flag = false;
+  bool remove_flag = false;
   bool dump_flag = false;
   int ch;
 
-  while ((ch = getopt(argc, argv, "du:")) != -1) {
+  while ((ch = getopt(argc, argv, "du:r:")) != -1) {
     switch (ch) {
+    case 'r':
+      remove_flag = true;
+      entry.name = optarg;
+      break;
     case 'u':
       update_flag = true;
       entry.name = optarg;
@@ -41,21 +46,21 @@ int main(int argc, char **argv) {
       dump_flag = true;
       break;
     default:
-      bail("usage: %s [-d | -u name [meta]] | [pattern]", argv[0]);
+      bail("usage: %s [-d | -u name [meta]] | -r name | [pattern]", argv[0]);
     }
   }
   argc -= optind;
   argv += optind;
 
-  if (update_flag && dump_flag) {
-    bail("-u and -d can't be combined");
+  if ((update_flag ? 1 : 0) + (dump_flag ? 1 : 0) + (remove_flag ? 1 : 0) > 1) {
+    bail("-u -d and -r can't be combined");
   }
 
-  if (!dump_flag && !update_flag && argc == 0) {
+  if (!remove_flag && !dump_flag && !update_flag && argc == 0) {
     bail("must specify a search string.");
   }
 
-  if (update_flag) {
+  if (update_flag || remove_flag) {
     if (pledge("stdio tty cpath rpath wpath", NULL) != 0) {
       bail("pledge(2) failed at %d.", __LINE__);
     }
@@ -98,7 +103,7 @@ int main(int argc, char **argv) {
   if (dump_flag) {
     explicit_bzero(&key[0], key.size());
     dump(data);
-  } else if (update_flag) {
+  } else if (update_flag || remove_flag) {
     for (int i = 0; i < argc; i++) {
       if (i > 0) {
         entry.meta += " ";
@@ -107,8 +112,8 @@ int main(int argc, char **argv) {
     }
     entry.password = random_str(15);
     std::string newdata;
-    if (!update(data, entry, newdata)) {
-      bail("update failed.");
+    if (!update(data, entry, newdata, remove_flag)) {
+      bail("%s failed.", remove_flag ? "remove" : "update");
     }
     data.clear();
 
@@ -120,8 +125,12 @@ int main(int argc, char **argv) {
     if (!dump_to_file(data, store_path)) {
       bail("failed to write updated store.");
     }
-    fprintf(stderr, "\n%s: %s\n", entry.name.c_str(), entry.meta.c_str());
-    printf("%s\n", entry.password.c_str());
+    if (update_flag) {
+      fprintf(stderr, "\n%s: %s\n", entry.name.c_str(), entry.meta.c_str());
+      printf("%s\n", entry.password.c_str());
+    } else {
+      fprintf(stderr, "\n%s: removed\n", entry.name.c_str());
+    }
   } else {
     explicit_bzero(&key[0], key.size());
     if (find(argv[0], data, entry)) {
@@ -144,7 +153,7 @@ bool dump(const std::string &data) {
 }
 
 bool update(const std::string &data, const struct ent &newent,
-            std::string &revised) {
+            std::string &revised, bool remove) {
   std::stringstream linestream{data};
   std::stringstream editstream{};
   bool found = false;
@@ -165,6 +174,9 @@ bool update(const std::string &data, const struct ent &newent,
                 entry.password.c_str());
         exact = newent.name == entry.name;
         found = true;
+        if (remove) {
+          continue;
+        }
         if (!newent.meta.empty()) {
           entry.meta = newent.meta;
         }
@@ -177,6 +189,9 @@ bool update(const std::string &data, const struct ent &newent,
     editstream.write((line + "\n").c_str(), line.size() + 1);
   }
   if (!found) {
+    if (remove) {
+      return false;
+    }
     // add
     std::string s{dump_entry(newent)};
     editstream.write(s.c_str(), s.size());

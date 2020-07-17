@@ -31,7 +31,7 @@ bool find(const std::string &needle, const std::string &haystack,
           struct ent &entry);
 bool dump(const std::string &data);
 bool update(const std::string &data, const struct ent &newent,
-            std::string &revised);
+            std::string &revised, bool remove);
 bool parse_entry(const std::string &line, struct ent &entry);
 std::string dump_entry(const struct ent &entry);
 std::string random_str(size_t sz);

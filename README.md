@@ -4,10 +4,11 @@ PWM - a simple password manager
 `pwm` stores passwords in an encrypted file on disk and provides a simple interface for retrieving or updating them.
 
 ```
-usage: pwm [-d | -u name [meta]] | [pattern]
+usage: pwm [-d | -u name [meta]] | -r name | [pattern]
 
        -d   (dump mode) will dump the entire password collection to stderr.
        -u   (update mode) will add or update an existing entry in the password store.
+       -r   (remove mode) will remove an existing entry from the password store.
 ```
 The first time `pwm` is run in update mode, it will initialize a
 new encrypted file for storage and you will be prompted to set a
@@ -49,3 +50,6 @@ hotmail3:
 JhcrXKvUwsTtKA6
 ```
 The old password is printed to `stderr` in case it is needed for "old password" fields.
+
+You can shorten names (eg, `pwm gm` instead of `gmail`) if it
+matches exactly one entry.

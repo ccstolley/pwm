@@ -154,7 +154,7 @@ UTEST(PWMTest, verifyUpdate) {
   e.meta = "four thumb";
   e.password = "REG";
 
-  EXPECT_TRUE(update(dat, e, newdat));
+  EXPECT_TRUE(update(dat, e, newdat, false));
   EXPECT_EQ("dog: one two\ncatdog: four thumb REG\nmouse: 100..z()\n", newdat);
 
   // incomplete update
@@ -162,7 +162,7 @@ UTEST(PWMTest, verifyUpdate) {
   e.name = "catd";
   e.password = "REG";
 
-  EXPECT_TRUE(update(dat, e, newdat));
+  EXPECT_TRUE(update(dat, e, newdat, false));
   EXPECT_EQ("dog: one two\ncatdog: four thumb REG\nmouse: 100..z()\n", newdat);
 
   // insert
@@ -170,7 +170,7 @@ UTEST(PWMTest, verifyUpdate) {
   e.name = "pig";
   e.meta = "bore";
   e.password = "SNaPz2";
-  EXPECT_TRUE(update(dat, e, newdat));
+  EXPECT_TRUE(update(dat, e, newdat, false));
   EXPECT_EQ("dog: one two\ncatdog: four thumb 5te\nmouse: 100..z()\npig: bore "
             "SNaPz2\n",
             newdat);
@@ -180,14 +180,14 @@ UTEST(PWMTest, verifyUpdate) {
   dat = "cool: snapsids biItNYeU7B4.V8-\ncoolman: vstb'76t8H<sFUB\n";
   e.name = "cool";
   e.password = "newpass";
-  EXPECT_TRUE(update(dat, e, newdat));
+  EXPECT_TRUE(update(dat, e, newdat, false));
   EXPECT_EQ(newdat, "cool: snapsids newpass\ncoolman: vstb'76t8H<sFUB\n");
 
   // conflict but no exact match
   e.clear();
   dat = "cool: snapsids biItNYeU7B4.V8-\ncoolman: vstb'76t8H<sFUB\n";
   e.name = "coo";
-  EXPECT_FALSE(update(dat, e, newdat));
+  EXPECT_FALSE(update(dat, e, newdat, false));
 }
 
 UTEST(PWMTest, verifyRandomStr) {
