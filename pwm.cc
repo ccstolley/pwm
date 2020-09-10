@@ -23,6 +23,10 @@ static std::string default_store_path() {
   return path;
 }
 
+[[noreturn]] static void usage() {
+  bail("usage: pwm [-d | -u name [meta]] | -r name | [pattern]");
+}
+
 int main(int argc, char **argv) {
   std::string data;
   std::string key;
@@ -46,18 +50,20 @@ int main(int argc, char **argv) {
       dump_flag = true;
       break;
     default:
-      bail("usage: %s [-d | -u name [meta]] | -r name | [pattern]", argv[0]);
+      usage();
     }
   }
   argc -= optind;
   argv += optind;
 
   if ((update_flag ? 1 : 0) + (dump_flag ? 1 : 0) + (remove_flag ? 1 : 0) > 1) {
-    bail("-u -d and -r can't be combined");
+    fprintf(stderr, "pwm: -u -d and -r can't be combined\n");
+    usage();
   }
 
   if (!remove_flag && !dump_flag && !update_flag && argc == 0) {
-    bail("must specify a search string.");
+    fprintf(stderr, "pwm: must specify a search string.\n");
+    usage();
   }
 
   if (update_flag || remove_flag) {
