@@ -229,7 +229,7 @@ std::string read_file(const std::string &filename) {
   }
   auto sz = in.tellg();
   in.seekg(0);
-  std::string dat(static_cast<unsigned long>(sz), '\0');
+  std::string dat(sz, '\0');
   in.read(&dat[0], static_cast<long>(dat.size()));
   if (in.good() && in.gcount() == sz) {
     in.close();
@@ -359,11 +359,11 @@ std::string trim(const std::string &s) {
 }
 
 std::string readpass(const std::string &prompt) {
-  std::string key(EVP_MAX_KEY_LENGTH, '\0');
-  if (readpassphrase(prompt.c_str(), &key[0], key.size(), 0) == NULL) {
+  char key[EVP_MAX_KEY_LENGTH] = {0};
+  if (readpassphrase(prompt.c_str(), key, sizeof(key), 0) == NULL) {
     bail("failed to read passphrase");
   }
-  return key;
+  return {key};
 }
 
 /**
@@ -394,8 +394,8 @@ bool decrypt(const std::string &ciphertext, const std::string &key,
                   sizeof(MAGIC) - 1);
 
   if (EVP_BytesToKey(cipher, EVP_sha256(), salt,
-                     reinterpret_cast<const unsigned char *>(key.c_str()),
-                     static_cast<int>(strlen(key.c_str())), 1, dkey, iv) == 0) {
+                     reinterpret_cast<const unsigned char *>(key.data()),
+                     key.size(), 1, dkey, iv) == 0) {
     perror("failed to derive key and iv");
     goto end;
   }
@@ -405,24 +405,24 @@ bool decrypt(const std::string &ciphertext, const std::string &key,
     goto end;
   }
 
-  sz = static_cast<int>(s.size());
+  sz = s.size();
   if (EVP_CipherUpdate(
-          ctx, reinterpret_cast<unsigned char *>(&s[0]), &sz,
-          reinterpret_cast<const unsigned char *>(&ciphertext[hdrsz]),
-          static_cast<int>(ciphertext.size() - hdrsz)) != 1) {
+          ctx, reinterpret_cast<unsigned char *>(s.data()), &sz,
+          reinterpret_cast<const unsigned char *>(&(ciphertext.data()[hdrsz])),
+          ciphertext.size() - hdrsz) != 1) {
     perror("CipherUpdate() failed");
     goto end;
   }
 
-  plaintext.append(s, 0, static_cast<unsigned long>(sz));
+  plaintext.append(s, 0, sz);
 
-  if (EVP_CipherFinal_ex(ctx, reinterpret_cast<unsigned char *>(&s[0]), &sz) !=
-      1) {
+  if (EVP_CipherFinal_ex(ctx, reinterpret_cast<unsigned char *>(s.data()),
+                         &sz) != 1) {
     perror("CipherFinal() failed");
     goto end;
   }
 
-  plaintext.append(s, 0, static_cast<unsigned long>(sz));
+  plaintext.append(s, 0, sz);
   plaintext = sort_data(plaintext);
 
   EVP_CIPHER_CTX_free(ctx);
@@ -458,8 +458,8 @@ bool encrypt(const std::string &plaintext, const std::string &key,
   ciphertext.append(reinterpret_cast<const char *>(salt), sizeof(salt));
 
   if (EVP_BytesToKey(cipher, EVP_sha256(), salt,
-                     reinterpret_cast<const unsigned char *>(key.c_str()),
-                     static_cast<int>(strlen(key.c_str())), 1, dkey, iv) == 0) {
+                     reinterpret_cast<const unsigned char *>(key.data()),
+                     key.size(), 1, dkey, iv) == 0) {
     perror("failed to derive key and iv");
     goto end;
   }
@@ -469,23 +469,24 @@ bool encrypt(const std::string &plaintext, const std::string &key,
     goto end;
   }
 
-  sz = static_cast<int>(s.size());
-  if (EVP_CipherUpdate(ctx, reinterpret_cast<unsigned char *>(&s[0]), &sz,
-                       reinterpret_cast<const unsigned char *>(&plaintext[0]),
-                       static_cast<int>(plaintext.size())) != 1) {
+  sz = s.size();
+  if (EVP_CipherUpdate(
+          ctx, reinterpret_cast<unsigned char *>(s.data()), &sz,
+          reinterpret_cast<const unsigned char *>(plaintext.data()),
+          plaintext.size()) != 1) {
     perror("CipherUpdate() failed");
     goto end;
   }
 
-  ciphertext.append(s, 0, static_cast<unsigned long>(sz));
+  ciphertext.append(s, 0, sz);
 
-  if (EVP_CipherFinal_ex(ctx, reinterpret_cast<unsigned char *>(&s[0]), &sz) !=
-      1) {
+  if (EVP_CipherFinal_ex(ctx, reinterpret_cast<unsigned char *>(s.data()),
+                         &sz) != 1) {
     perror("CipherFinal() failed");
     goto end;
   }
 
-  ciphertext.append(s, 0, static_cast<unsigned long>(sz));
+  ciphertext.append(s, 0, sz);
 
   EVP_CIPHER_CTX_free(ctx);
   return true;
