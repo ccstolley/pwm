@@ -89,7 +89,7 @@ int main(int argc, char **argv) {
   }
 
   auto ciphertext = read_file(store_path);
-  if (ciphertext.size() == 0) {
+  if (ciphertext.empty()) {
     if (!update_flag) {
       bail("missing or corrupt store: %s", store_path.c_str());
     }
@@ -247,7 +247,7 @@ std::string sort_data(const std::string &data) {
   }
   std::sort(datav.begin(), datav.end(),
             [](const std::string &a, const std::string &b) {
-              return a.substr(0, a.find(":")) < b.substr(0, b.find(":"));
+              return a.substr(0, a.find(':')) < b.substr(0, b.find(':'));
             });
 
   std::ostringstream outs;

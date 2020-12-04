@@ -42,7 +42,7 @@ struct ent {
   std::string name;
   std::string meta;
   std::string password;
-  bool operator==(const ent &rhs) {
+  bool operator==(const ent &rhs) const {
     return (name == rhs.name && meta == rhs.meta && password == rhs.password);
   }
   void clear() {
