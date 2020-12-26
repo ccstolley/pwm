@@ -1,6 +1,6 @@
 #include "pwm.h"
 
-static const char MAGIC[] = "Salted__";
+inline constexpr std::string_view MAGIC{"Salted__"};
 
 [[noreturn]] static void bail(const char *fmt, ...) {
   va_list args;
@@ -375,7 +375,7 @@ bool decrypt(const std::string &ciphertext, const std::string &key,
   unsigned char iv[EVP_MAX_IV_LENGTH];
   unsigned char salt[PKCS5_SALT_LEN];
   int sz = 0;
-  const int hdrsz = sizeof(MAGIC) + sizeof(salt) - 1;
+  const int hdrsz = MAGIC.size() + sizeof(salt);
   std::string s(ciphertext.size(), '\0');
 
   EVP_CIPHER_CTX *ctx = NULL;
@@ -386,12 +386,11 @@ bool decrypt(const std::string &ciphertext, const std::string &key,
     goto end;
   }
 
-  if (ciphertext.substr(0, strlen(MAGIC)) != std::string(MAGIC)) {
+  if (ciphertext.substr(0, MAGIC.size()) != MAGIC) {
     perror("invalid magic string");
     goto end;
   }
-  ciphertext.copy(reinterpret_cast<char *>(salt), sizeof(salt),
-                  sizeof(MAGIC) - 1);
+  ciphertext.copy(reinterpret_cast<char *>(salt), sizeof(salt), MAGIC.size());
 
   if (EVP_BytesToKey(cipher, EVP_sha256(), salt,
                      reinterpret_cast<const unsigned char *>(key.data()),
