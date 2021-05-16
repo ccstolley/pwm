@@ -1,4 +1,5 @@
 #include <algorithm>
+#include <iterator>
 #include <cstdio>
 #include <cstring>
 #include <fstream>
@@ -14,6 +15,7 @@
 #include <sys/types.h>
 #include <unistd.h>
 #include <vector>
+#include <portable.h>
 
 static bool save_backup(const std::string &filename);
 static std::string readpass(const std::string &prompt);
