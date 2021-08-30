@@ -27,6 +27,8 @@ static std::string default_store_path() {
   bail("usage: pwm [-d | -u name [meta]] | -r name | [pattern]");
 }
 
+[[nodiscard]] static bool is_read_only() { return std::getenv("PWM_READONLY"); }
+
 int main(int argc, char **argv) {
   std::string data;
   std::string key;
@@ -55,6 +57,10 @@ int main(int argc, char **argv) {
   }
   argc -= optind;
   argv += optind;
+
+  if (is_read_only() && (remove_flag || update_flag)) {
+    bail("Write operations are disabled.");
+  }
 
   if ((update_flag ? 1 : 0) + (dump_flag ? 1 : 0) + (remove_flag ? 1 : 0) > 1) {
     fprintf(stderr, "pwm: -u -d and -r can't be combined\n");
