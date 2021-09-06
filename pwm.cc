@@ -73,11 +73,11 @@ int main(int argc, char **argv) {
   }
 
   if (update_flag || remove_flag) {
-    if (pledge("stdio tty cpath rpath wpath", NULL) != 0) {
+    if (pledge("stdio tty fattr cpath rpath wpath", NULL) != 0) {
       bail("pledge(2) failed at %d.", __LINE__);
     }
   } else {
-    if (pledge("stdio tty rpath", NULL) != 0) {
+    if (pledge("stdio tty rpath fattr", NULL) != 0) {
       bail("pledge(2) failed at %d.", __LINE__);
     }
   }
@@ -105,7 +105,7 @@ int main(int argc, char **argv) {
       bail("passwords didn't match.");
     }
   } else {
-    check_perms(store_path.c_str());
+    check_perms(store_path);
     key = readpass("passphrase: ");
     if (!decrypt(ciphertext, key, data)) {
       fprintf(stderr, "Decrypt failed\n");
@@ -218,13 +218,16 @@ bool save_backup(const std::string &filename) {
   return std::rename(filename.c_str(), bak.c_str()) == 0;
 }
 
-void check_perms(const char *path) {
+void check_perms(const std::string &path) {
   struct stat sb;
-  if (stat(path, &sb) == -1) {
-    bail("no such file: %s", path);
+  if (stat(path.c_str(), &sb) == -1) {
+    bail("no such file: %s", path.c_str());
   }
   if ((sb.st_mode & S_IRWXG) || (sb.st_mode & S_IRWXO)) {
-    bail("%s\n   must be read/writeable by owner only.", path);
+    if (0 != chmod(path.c_str(), S_IRUSR|S_IWUSR)) {
+      bail("%s\n   must be read/writeable by owner only.", path.c_str());
+    }
+    chmod((path + ".bak").c_str(), S_IRUSR|S_IWUSR); // best effort
   }
 }
 
