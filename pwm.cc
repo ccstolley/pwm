@@ -30,8 +30,6 @@ static std::string default_store_path() {
 [[nodiscard]] static bool is_read_only() { return std::getenv("PWM_READONLY"); }
 
 int main(int argc, char **argv) {
-  std::string data;
-  std::string key;
   struct ent entry;
   bool update_flag = false;
   bool remove_flag = false;
@@ -73,11 +71,11 @@ int main(int argc, char **argv) {
   }
 
   if (update_flag || remove_flag) {
-    if (pledge("stdio tty cpath rpath wpath", NULL) != 0) {
+    if (pledge("stdio tty fattr cpath rpath wpath", NULL) != 0) {
       bail("pledge(2) failed at %d.", __LINE__);
     }
   } else {
-    if (pledge("stdio tty rpath", NULL) != 0) {
+    if (pledge("stdio tty rpath fattr", NULL) != 0) {
       bail("pledge(2) failed at %d.", __LINE__);
     }
   }
@@ -95,6 +93,8 @@ int main(int argc, char **argv) {
   }
 
   auto ciphertext = read_file(store_path);
+  std::string data, key;
+
   if (ciphertext.empty()) {
     if (!update_flag) {
       bail("missing or corrupt store: %s", store_path.c_str());
@@ -105,7 +105,7 @@ int main(int argc, char **argv) {
       bail("passwords didn't match.");
     }
   } else {
-    check_perms(store_path.c_str());
+    check_perms(store_path);
     key = readpass("passphrase: ");
     if (!decrypt(ciphertext, key, data)) {
       fprintf(stderr, "Decrypt failed\n");
@@ -122,6 +122,7 @@ int main(int argc, char **argv) {
       }
       entry.meta += argv[i]; // typically username
     }
+    entry.updated_at = time(nullptr);
     entry.password = random_str(15);
     std::string newdata;
     if (!update(data, entry, newdata, remove_flag)) {
@@ -146,6 +147,12 @@ int main(int argc, char **argv) {
   } else {
     explicit_bzero(&key[0], key.size());
     if (find(argv[0], data, entry)) {
+      if (entry.updated_at) {
+        char buf[64];
+        struct tm *t = localtime(&entry.updated_at);
+        strftime(buf, sizeof(buf), "%F %T", t);
+        fprintf(stderr, "\nupdated: %s\n", buf);
+      }
       fprintf(stderr, "\n%s: %s\n", entry.name.c_str(), entry.meta.c_str());
       printf("%s\n", entry.password.c_str());
     } else {
@@ -193,6 +200,7 @@ bool update(const std::string &data, const struct ent &newent,
           entry.meta = newent.meta;
         }
         entry.password = newent.password;
+        entry.updated_at = newent.updated_at;
         std::string s{dump_entry(entry)};
         editstream.write(s.c_str(), s.size());
         continue;
@@ -218,13 +226,16 @@ bool save_backup(const std::string &filename) {
   return std::rename(filename.c_str(), bak.c_str()) == 0;
 }
 
-void check_perms(const char *path) {
+void check_perms(const std::string &path) {
   struct stat sb;
-  if (stat(path, &sb) == -1) {
-    bail("no such file: %s", path);
+  if (stat(path.c_str(), &sb) == -1) {
+    bail("no such file: %s", path.c_str());
   }
   if ((sb.st_mode & S_IRWXG) || (sb.st_mode & S_IRWXO)) {
-    bail("%s\n   must be read/writeable by owner only.", path);
+    if (0 != chmod(path.c_str(), S_IRUSR | S_IWUSR)) {
+      bail("%s\n   must be read/writeable by owner only.", path.c_str());
+    }
+    chmod((path + ".bak").c_str(), S_IRUSR | S_IWUSR); // best effort
   }
 }
 
@@ -308,15 +319,25 @@ bool parse_entry(const std::string &line, struct ent &entry) {
   }
   entry.name = fields[0];
   auto data = split(fields[1], " ");
+  entry.updated_at = 0;
   if (data.size() == 1) {
     entry.password = data[0];
   } else {
     entry.meta.clear();
-    for (size_t i = 0; i < data.size() - 1; i++) {
+    for (size_t i = 0; i < data.size() - 2; i++) {
       if (i > 0) {
         entry.meta += " ";
       }
       entry.meta += data[i]; // typically username
+    }
+    try {
+      entry.updated_at = std::stol(data[data.size() - 2]);
+      if (entry.updated_at < 1601877323 || entry.updated_at > 2401877323) {
+        entry.updated_at = 0;
+        throw std::out_of_range("invalid time value");
+      }
+    } catch (std::logic_error &e) {
+      entry.meta += (entry.meta.empty() ? "" : " ") + data[data.size() - 2];
     }
     entry.password = data[data.size() - 1];
   }
@@ -326,6 +347,7 @@ bool parse_entry(const std::string &line, struct ent &entry) {
 std::string dump_entry(const struct ent &entry) {
   std::string s(entry.name);
   return s + ": " + (entry.meta.empty() ? "" : entry.meta + " ") +
+         (entry.updated_at ? std::to_string(entry.updated_at) + " " : "") +
          entry.password + "\n";
 }
 

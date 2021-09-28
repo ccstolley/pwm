@@ -38,12 +38,13 @@ bool parse_entry(const std::string &line, struct ent &entry);
 std::string dump_entry(const struct ent &entry);
 std::string random_str(size_t sz);
 std::string sort_data(const std::string &data);
-void check_perms(const char *path);
+void check_perms(const std::string &path);
 
 struct ent {
   std::string name;
   std::string meta;
   std::string password;
+  time_t updated_at;
   bool operator==(const ent &rhs) const {
     return (name == rhs.name && meta == rhs.meta && password == rhs.password);
   }
@@ -51,5 +52,6 @@ struct ent {
     name.clear();
     meta.clear();
     password.clear();
+    updated_at = 0;
   }
 };
