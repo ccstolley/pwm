@@ -76,27 +76,33 @@ UTEST(PWMTest, verifyEncrypt) {
 }
 
 UTEST(PWMTest, verifyFind) {
-  const std::string dat("dog: one two three\ndog2: fourteen\ndragon:\ncat: "
-                        "four 5\nmouse: 100..z()");
+  const std::string dat(
+      "dog: one two three\ndog2: fourteen\ndragon:\n"
+      "cat: four 5 6\nmouse: 100..z()\nblonde: 1632857699 passw\n"
+      "tape: mall time 1632857700 passwood\nblorgish: 2Ua02=bar");
 
   struct ent e;
 
+  e.clear();
   EXPECT_TRUE(find("dog", dat, e));
   EXPECT_EQ(e.name, "dog");
   EXPECT_EQ(e.meta, "one two");
+  EXPECT_EQ(0, e.updated_at);
   EXPECT_EQ(e.password, "three");
 
   e.clear();
   EXPECT_TRUE(find("cat", dat, e));
   EXPECT_EQ(e.name, "cat");
-  EXPECT_EQ(e.meta, "four");
-  EXPECT_EQ(e.password, "5");
+  EXPECT_EQ(e.meta, "four 5");
+  EXPECT_EQ(0, e.updated_at);
+  EXPECT_EQ(e.password, "6");
 
   e.clear();
   EXPECT_TRUE(find("mouse", dat, e));
-  EXPECT_TRUE(e.name == "mouse");
-  EXPECT_TRUE(e.meta == "");
-  EXPECT_TRUE(e.password == "100..z()");
+  EXPECT_EQ(e.name, "mouse");
+  EXPECT_EQ(e.meta, "");
+  EXPECT_EQ(e.updated_at, 0);
+  EXPECT_EQ(e.password, "100..z()");
 
   e.clear();
   EXPECT_FALSE(find("d", dat, e));
@@ -104,74 +110,115 @@ UTEST(PWMTest, verifyFind) {
   EXPECT_FALSE(find("lion", dat, e));
   EXPECT_FALSE(find("lion", "lion", e));
   EXPECT_FALSE(find("lion", ":", e));
+
+  e.clear();
+  EXPECT_TRUE(find("blond", dat, e));
+  EXPECT_EQ(e.name, "blonde");
+  EXPECT_EQ(e.meta, "");
+  EXPECT_EQ(1632857699, e.updated_at);
+  EXPECT_EQ(e.password, "passw");
+
+  e.clear();
+  EXPECT_TRUE(find("tape", dat, e));
+  EXPECT_EQ(e.name, "tape");
+  EXPECT_EQ(e.meta, "mall time");
+  EXPECT_EQ(1632857700, e.updated_at);
+  EXPECT_EQ(e.password, "passwood");
+
+  e.clear();
+  EXPECT_TRUE(find("blorg", dat, e));
+  EXPECT_EQ(e.name, "blorgish");
+  EXPECT_EQ(e.meta, "");
+  EXPECT_EQ(0, e.updated_at);
+  EXPECT_EQ(e.password, "2Ua02=bar");
 }
 
 UTEST(PWMTest, verifyDumpEntry) {
   struct ent e1 {
-    "foo", "bar", "baz"
+    "foo", "bar", "baz", 0
   };
   struct ent e2 {
-    "foo", "bar beet", "baz"
+    "foo", "bar beet", "baz", 1632853098
   };
   struct ent e3 {
-    "foo", "", "baz"
+    "foo", "", "baz", 1632853098
   };
 
   EXPECT_EQ(dump_entry(e1), "foo: bar baz\n");
-  EXPECT_EQ(dump_entry(e2), "foo: bar beet baz\n");
-  EXPECT_EQ(dump_entry(e3), "foo: baz\n");
+  EXPECT_EQ(dump_entry(e2), "foo: bar beet 1632853098 baz\n");
+  EXPECT_EQ(dump_entry(e3), "foo: 1632853098 baz\n");
 }
 
 UTEST(PWMTest, verifyParseEntry) {
   struct ent e1 {
-    "foo", "bar", "baz"
+    "foo", "bar", "baz", 0
   };
   struct ent e2 {
-    "cow", "bar beet", "zap"
+    "cow", "bar beet", "zap", 1632853098
   };
   struct ent e3 {
-    "dog", "", "zap"
+    "dog", "", "zap", 1632853098
   };
+  struct ent e4{"goo", "", "2Ua02=bar", 0};
+  struct ent e5{"goo", "zar", "pizza", 1632853098};
   struct ent t;
 
   EXPECT_TRUE(parse_entry("foo: bar baz\n", t));
   EXPECT_TRUE(e1 == t);
   t.clear();
-  EXPECT_TRUE(parse_entry("cow: bar beet zap\n", t));
+
+  EXPECT_TRUE(parse_entry("cow: bar beet 1632853098 zap\n", t));
   EXPECT_TRUE(e2 == t);
   t.clear();
-  EXPECT_TRUE(parse_entry("dog: zap\n", t));
+  EXPECT_TRUE(parse_entry("dog: 1632853098 zap\n", t));
   EXPECT_TRUE(e3 == t);
+
+  t.updated_at = 8840123;
+  EXPECT_TRUE(parse_entry("goo: 2Ua02=bar\n", t));
+  EXPECT_TRUE(e4 == t);
+  t.clear();
+
+  EXPECT_TRUE(parse_entry("goo: zar 1632853098 pizza\n", t));
+  EXPECT_TRUE(e5 == t);
+  t.clear();
 }
 
 UTEST(PWMTest, verifyUpdate) {
-  std::string dat("dog: one two\ncatdog: four thumb 5te\nmouse: 100..z()\n");
+  std::string dat(
+      "dog: one 5 two\ncatdog: four thumb 5te\nmouse: 942 100..z()\n");
   struct ent e;
   std::string newdat;
 
   // update
   e.name = "catdog";
-  e.meta = "four thumb";
+  e.meta = "duck pig";
   e.password = "REG";
+  e.updated_at = 44;
 
   EXPECT_TRUE(update(dat, e, newdat, false));
-  EXPECT_EQ("dog: one two\ncatdog: four thumb REG\nmouse: 100..z()\n", newdat);
+  EXPECT_EQ("dog: one 5 two\ncatdog: duck pig 44 REG\nmouse: 942 100..z()\n",
+            newdat);
 
   // incomplete update
   e.clear();
   e.name = "catd";
   e.password = "REG";
+  e.updated_at = 48;
 
   EXPECT_TRUE(update(dat, e, newdat, false));
-  EXPECT_EQ("dog: one two\ncatdog: four thumb REG\nmouse: 100..z()\n", newdat);
+  EXPECT_EQ("dog: one 5 two\ncatdog: four thumb 48 REG\nmouse: 942 100..z()\n",
+            newdat);
 
   // insert
   e.clear();
   e.name = "pig";
   e.meta = "bore";
   e.password = "SNaPz2";
+  e.updated_at = 55;
+
   EXPECT_TRUE(update(dat, e, newdat, false));
-  EXPECT_EQ("dog: one two\ncatdog: four thumb 5te\nmouse: 100..z()\npig: bore "
+  EXPECT_EQ("dog: one 5 two\ncatdog: four thumb 5te\nmouse: 942 100..z()\npig: "
+            "bore 55 "
             "SNaPz2\n",
             newdat);
 
@@ -180,13 +227,15 @@ UTEST(PWMTest, verifyUpdate) {
   dat = "cool: snapsids biItNYeU7B4.V8-\ncoolman: vstb'76t8H<sFUB\n";
   e.name = "cool";
   e.password = "newpass";
+  e.updated_at = 56;
   EXPECT_TRUE(update(dat, e, newdat, false));
-  EXPECT_EQ(newdat, "cool: snapsids newpass\ncoolman: vstb'76t8H<sFUB\n");
+  EXPECT_EQ(newdat, "cool: snapsids 56 newpass\ncoolman: vstb'76t8H<sFUB\n");
 
   // conflict but no exact match
   e.clear();
   dat = "cool: snapsids biItNYeU7B4.V8-\ncoolman: vstb'76t8H<sFUB\n";
   e.name = "coo";
+  e.updated_at = 78;
   EXPECT_FALSE(update(dat, e, newdat, false));
 }
 

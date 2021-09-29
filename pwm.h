@@ -42,6 +42,7 @@ struct ent {
   std::string name;
   std::string meta;
   std::string password;
+  time_t updated_at;
   bool operator==(const ent &rhs) const {
     return (name == rhs.name && meta == rhs.meta && password == rhs.password);
   }
@@ -49,5 +50,6 @@ struct ent {
     name.clear();
     meta.clear();
     password.clear();
+    updated_at = 0;
   }
 };
