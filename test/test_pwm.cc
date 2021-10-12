@@ -159,8 +159,12 @@ UTEST(PWMTest, verifyParseEntry) {
   struct ent e3 {
     "dog", "", "zap", 1632853098
   };
-  struct ent e4{"goo", "", "2Ua02=bar", 0};
-  struct ent e5{"goo", "zar", "pizza", 1632853098};
+  struct ent e4 {
+    "goo", "", "2Ua02=bar", 0
+  };
+  struct ent e5 {
+    "goo", "zar", "pizza", 1632853098
+  };
   struct ent t;
 
   EXPECT_TRUE(parse_entry("foo: bar baz\n", t));

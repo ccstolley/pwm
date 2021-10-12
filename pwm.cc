@@ -24,7 +24,12 @@ static std::string default_store_path() {
 }
 
 [[noreturn]] static void usage() {
-  bail("usage: pwm [-d | -u name [meta]] | -r name | [pattern]");
+  bail("usage: pwm [-d | -C | -u <name> [<meta>] | -r name | <pattern>\n\n"
+       "options:\n"
+       "  -C  change master password on existing store\n"
+       "  -d  dump all passwords to stderr\n"
+       "  -u  create/update password with <name> and optional <meta> data\n"
+       "  -r  remove password with <name>\n");
 }
 
 [[nodiscard]] static bool is_read_only() { return std::getenv("PWM_READONLY"); }
@@ -34,9 +39,10 @@ int main(int argc, char **argv) {
   bool update_flag = false;
   bool remove_flag = false;
   bool dump_flag = false;
+  bool chpass_flag = false;
   int ch;
 
-  while ((ch = getopt(argc, argv, "du:r:")) != -1) {
+  while ((ch = getopt(argc, argv, "Cdu:r:")) != -1) {
     switch (ch) {
     case 'r':
       remove_flag = true;
@@ -49,6 +55,9 @@ int main(int argc, char **argv) {
     case 'd':
       dump_flag = true;
       break;
+    case 'C':
+      chpass_flag = true;
+      break;
     default:
       usage();
     }
@@ -56,21 +65,21 @@ int main(int argc, char **argv) {
   argc -= optind;
   argv += optind;
 
-  if (is_read_only() && (remove_flag || update_flag)) {
+  if (is_read_only() && (remove_flag || update_flag || chpass_flag)) {
     bail("Write operations are disabled.");
   }
 
-  if ((update_flag ? 1 : 0) + (dump_flag ? 1 : 0) + (remove_flag ? 1 : 0) > 1) {
-    fprintf(stderr, "pwm: -u -d and -r can't be combined\n");
+  if (update_flag + dump_flag + remove_flag + chpass_flag > 1) {
+    fprintf(stderr, "pwm: command options can't be combined\n");
     usage();
   }
 
-  if (!remove_flag && !dump_flag && !update_flag && argc == 0) {
+  if (!chpass_flag && !remove_flag && !dump_flag && !update_flag && argc == 0) {
     fprintf(stderr, "pwm: must specify a search string.\n");
     usage();
   }
 
-  if (update_flag || remove_flag) {
+  if (update_flag || remove_flag || chpass_flag) {
     if (pledge("stdio tty fattr cpath rpath wpath", NULL) != 0) {
       bail("pledge(2) failed at %d.", __LINE__);
     }
@@ -94,12 +103,14 @@ int main(int argc, char **argv) {
 
   auto ciphertext = read_file(store_path);
   std::string data, key;
+  bool init_new = false;
 
   if (ciphertext.empty()) {
     if (!update_flag) {
       bail("missing or corrupt store: %s", store_path.c_str());
     }
     fprintf(stderr, "Initializing new password store.\n");
+    init_new = true;
     key = readpass("set root passphrase: ");
     if (key != readpass(" confirm passphrase: ")) {
       bail("passwords didn't match.");
@@ -130,10 +141,13 @@ int main(int argc, char **argv) {
     }
     data.clear();
 
-    save_backup(store_path);
+    if (!init_new && !save_backup(store_path)) {
+      bail("failed to save backup. aborting.");
+    }
     if (!encrypt(newdata, key, data)) {
       bail("re-encrypt failed! backup saved.");
     }
+    explicit_bzero(&newdata[0], newdata.size());
     explicit_bzero(&key[0], key.size());
     if (!dump_to_file(data, store_path)) {
       bail("failed to write updated store.");
@@ -144,6 +158,29 @@ int main(int argc, char **argv) {
     } else {
       fprintf(stderr, "\n%s: removed\n", entry.name.c_str());
     }
+  } else if (chpass_flag) {
+    explicit_bzero(&key[0], key.size());
+    fprintf(stderr, "Resetting password for %s.\n", store_path.c_str());
+    key = readpass("set root passphrase: ");
+    if (key != readpass(" confirm passphrase: ")) {
+      bail("passwords didn't match.");
+    }
+    if (!init_new && !save_backup(store_path)) {
+      bail("failed to save backup. aborting.");
+    }
+    std::string newdata;
+    if (!encrypt(data, key, newdata)) {
+      bail("re-encrypt failed! backup saved.");
+    }
+    explicit_bzero(&key[0], key.size());
+    explicit_bzero(&data[0], data.size());
+    if (!dump_to_file(newdata, store_path)) {
+      bail("failed to write updated store. backup saved.");
+    }
+    fprintf(stderr,
+            "\nMaster password updated.\n\nDelete the backup store\n"
+            "  rm %s.bak\nif your old password was compromised.\n",
+            store_path.c_str());
   } else {
     explicit_bzero(&key[0], key.size());
     if (find(argv[0], data, entry)) {
@@ -220,7 +257,7 @@ bool update(const std::string &data, const struct ent &newent,
   return true;
 }
 
-bool save_backup(const std::string &filename) {
+[[nodiscard]] bool save_backup(const std::string &filename) {
   std::string bak(filename);
   bak += ".bak";
   return std::rename(filename.c_str(), bak.c_str()) == 0;

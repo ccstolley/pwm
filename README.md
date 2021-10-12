@@ -4,11 +4,13 @@ PWM - a simple password manager
 `pwm` stores passwords in an encrypted file on disk and provides a simple interface for retrieving or updating them.
 
 ```
-usage: pwm [-d | -u name [meta]] | -r name | [pattern]
+usage: pwm [-d | -C | -u <name> [<meta>] | -r name | <pattern>
 
-       -d   (dump mode) will dump the entire password collection to stderr.
-       -u   (update mode) will add or update an existing entry in the password store.
-       -r   (remove mode) will remove an existing entry from the password store.
+options:
+  -C  change master password on existing store
+  -d  dump all passwords to stderr
+  -u  create/update password with <name> and optional <meta> data
+  -r  remove password with <name>
 ```
 The first time `pwm` is run in update mode, it will initialize a
 new encrypted file for storage and you will be prompted to set a
