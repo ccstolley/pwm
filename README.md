@@ -4,7 +4,7 @@ PWM - a simple password manager
 `pwm` stores passwords in an encrypted file on disk and provides a simple interface for retrieving or updating them.
 
 ```
-usage: pwm [-d | -C | -u <name> [<meta>] | -r name | <pattern>
+usage: pwm [-d | -C | -u <name> [<meta>...] | -r name | <pattern>
 
 options:
   -C  change master password on existing store
