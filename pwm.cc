@@ -24,7 +24,7 @@ static std::string default_store_path() {
 }
 
 [[noreturn]] static void usage() {
-  bail("usage: pwm [-d | -C | -u <name> [<meta>] | -r name | <pattern>\n\n"
+  bail("usage: pwm [-d | -C | -u <name> [<meta>...] | -r name | <pattern>\n\n"
        "options:\n"
        "  -C  change master password on existing store\n"
        "  -d  dump all passwords to stderr\n"
