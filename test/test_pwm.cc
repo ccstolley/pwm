@@ -54,14 +54,21 @@ UTEST(PWMTest, verifySplit) {
 }
 
 UTEST(PWMTest, verifyDecrypt) {
-  const std::string encdat("Salted__!0F\x03\x95\x9a\xd5[\x87\x1f"
-                           "B\xec\xa5\xedz\xc2\xd8"
-                           "a-\x9dL\xae\x97"
-                           "0");
+  const std::string encdat(
+      "Salted__\x03\xd5\x9bN\x84\xa2z\x1d!\x1bn:\xde\xa6\x8b\xb5X"
+      "\xae\xf8\x0b]\x8f\x13\xd8,&{ D\xa7\xb2qvi>\xb2\xc1\xf7x\xdf"
+      ")\xeft4\x17,\xe4\x11n\x02G\x06T\xcb\xcc!\x93\xefo\xfb\xea");
   const std::string key("pwmtest");
   std::string s;
   ASSERT_TRUE(decrypt(encdat, key, s));
   ASSERT_EQ(s, "a test crypt\n");
+}
+
+UTEST(PWMTest, verifyDecryptCorrupt) {
+  const std::string encdat("Saltysnack");
+  const std::string key("pwmtest");
+  std::string s;
+  ASSERT_FALSE(decrypt(encdat, key, s));
 }
 
 UTEST(PWMTest, verifyEncrypt) {
