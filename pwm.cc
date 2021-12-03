@@ -118,7 +118,9 @@ int main(int argc, char **argv) {
   } else {
     check_perms(store_path);
     key = readpass("passphrase: ");
-    if (!decrypt(ciphertext, key, data)) {
+    // temporarily try both decrypt versions until transitional period is done.
+    if (!decrypt(ciphertext, key, data) &&
+        !decrypt_old(ciphertext, key, data)) {
       fprintf(stderr, "Decrypt failed\n");
       return 1;
     }
@@ -478,6 +480,73 @@ bool decrypt(const std::string &ciphertext, const std::string &key,
 
   if (EVP_CIPHER_CTX_ctrl(ctx, EVP_CTRL_GCM_SET_TAG, 16, tag) != 1) {
     perror("failed to set GCM tag");
+    goto end;
+  }
+
+  sz = s.size();
+  if (EVP_CipherUpdate(
+          ctx, reinterpret_cast<unsigned char *>(s.data()), &sz,
+          reinterpret_cast<const unsigned char *>(&(ciphertext.data()[hdrsz])),
+          ciphertext.size() - hdrsz) != 1) {
+    perror("CipherUpdate() failed");
+    goto end;
+  }
+
+  plaintext.append(s, 0, sz);
+
+  if (EVP_CipherFinal_ex(ctx, reinterpret_cast<unsigned char *>(s.data()),
+                         &sz) != 1) {
+    perror("CipherFinal() failed");
+    goto end;
+  }
+
+  plaintext.append(s, 0, sz);
+  plaintext = sort_data(plaintext);
+
+  EVP_CIPHER_CTX_free(ctx);
+  return true;
+
+end:
+  EVP_CIPHER_CTX_free(ctx);
+  return false;
+}
+
+/**
+ * Decrypt using old-style (CBC) cipher for backwards compatiblity.
+ * TODO: Delete this code.
+ */
+bool decrypt_old(const std::string &ciphertext, const std::string &key,
+                 std::string &plaintext) {
+  unsigned char dkey[EVP_MAX_KEY_LENGTH];
+  unsigned char iv[EVP_MAX_IV_LENGTH];
+  unsigned char salt[PKCS5_SALT_LEN];
+  int sz = 0;
+  const int hdrsz = MAGIC.size() + sizeof(salt);
+  std::string s(ciphertext.size(), '\0');
+
+  EVP_CIPHER_CTX *ctx = NULL;
+  const EVP_CIPHER *cipher = EVP_aes_256_cbc();
+
+  ctx = EVP_CIPHER_CTX_new();
+  if (ctx == NULL) {
+    goto end;
+  }
+
+  if (ciphertext.substr(0, MAGIC.size()) != MAGIC) {
+    perror("invalid magic string");
+    goto end;
+  }
+  ciphertext.copy(reinterpret_cast<char *>(salt), sizeof(salt), MAGIC.size());
+
+  if (EVP_BytesToKey(cipher, EVP_sha256(), salt,
+                     reinterpret_cast<const unsigned char *>(key.data()),
+                     key.size(), 1, dkey, iv) == 0) {
+    perror("failed to derive key and iv");
+    goto end;
+  }
+
+  if (EVP_CipherInit_ex(ctx, cipher, NULL, dkey, iv, 0) != 1) {
+    perror("failed to init cipher");
     goto end;
   }
 
