@@ -25,6 +25,8 @@ bool encrypt(const std::string &plaintext, const std::string &key,
              std::string &ciphertext);
 bool decrypt(const std::string &ciphertext, const std::string &key,
              std::string &plaintext);
+bool decrypt_old(const std::string &ciphertext, const std::string &key,
+             std::string &plaintext);
 std::string trim(const std::string &s);
 std::string read_file(const std::string &filename);
 std::vector<std::string> split(const std::string &s,

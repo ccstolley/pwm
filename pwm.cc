@@ -118,7 +118,9 @@ int main(int argc, char **argv) {
   } else {
     check_perms(store_path);
     key = readpass("passphrase: ");
-    if (!decrypt(ciphertext, key, data)) {
+    // temporarily try both decrypt versions until transitional period is done.
+    if (!decrypt(ciphertext, key, data) &&
+        !decrypt_old(ciphertext, key, data)) {
       fprintf(stderr, "Decrypt failed\n");
       return 1;
     }
@@ -436,6 +438,85 @@ std::string readpass(const std::string &prompt) {
  */
 bool decrypt(const std::string &ciphertext, const std::string &key,
              std::string &plaintext) {
+  unsigned char salt[32];
+  unsigned char dkeyiv[EVP_MAX_KEY_LENGTH + EVP_MAX_IV_LENGTH];
+  char tag[16];
+  int sz = 0;
+  const int hdrsz = MAGIC.size() + sizeof(salt) + sizeof(tag);
+  std::string s(ciphertext.size(), '\0');
+
+  EVP_CIPHER_CTX *ctx = NULL;
+  const EVP_CIPHER *cipher = EVP_aes_256_gcm();
+
+  if (ciphertext.size() < sizeof(tag) + MAGIC.size() + sizeof(salt)) {
+    perror("corrupt ciphertext");
+    goto end;
+  }
+
+  ctx = EVP_CIPHER_CTX_new();
+  if (ctx == NULL) {
+    goto end;
+  }
+
+  if (ciphertext.substr(0, MAGIC.size()) != MAGIC) {
+    perror("invalid magic string");
+    goto end;
+  }
+  ciphertext.copy(reinterpret_cast<char *>(salt), sizeof(salt), MAGIC.size());
+
+  ciphertext.copy(tag, sizeof(tag), MAGIC.size() + sizeof(salt));
+
+  if (PKCS5_PBKDF2_HMAC(key.c_str(), key.size(), salt, sizeof(salt), 5000,
+                        EVP_sha256(), sizeof(dkeyiv), dkeyiv) != 1) {
+    perror("failed to derive key and iv");
+    goto end;
+  }
+
+  if (EVP_CipherInit_ex(ctx, cipher, NULL, dkeyiv, dkeyiv + EVP_MAX_KEY_LENGTH,
+                        0) != 1) {
+    perror("failed to init cipher");
+    goto end;
+  }
+
+  if (EVP_CIPHER_CTX_ctrl(ctx, EVP_CTRL_GCM_SET_TAG, 16, tag) != 1) {
+    perror("failed to set GCM tag");
+    goto end;
+  }
+
+  sz = s.size();
+  if (EVP_CipherUpdate(
+          ctx, reinterpret_cast<unsigned char *>(s.data()), &sz,
+          reinterpret_cast<const unsigned char *>(&(ciphertext.data()[hdrsz])),
+          ciphertext.size() - hdrsz) != 1) {
+    perror("CipherUpdate() failed");
+    goto end;
+  }
+
+  plaintext.append(s, 0, sz);
+
+  if (EVP_CipherFinal_ex(ctx, reinterpret_cast<unsigned char *>(s.data()),
+                         &sz) != 1) {
+    perror("CipherFinal() failed");
+    goto end;
+  }
+
+  plaintext.append(s, 0, sz);
+  plaintext = sort_data(plaintext);
+
+  EVP_CIPHER_CTX_free(ctx);
+  return true;
+
+end:
+  EVP_CIPHER_CTX_free(ctx);
+  return false;
+}
+
+/**
+ * Decrypt using old-style (CBC) cipher for backwards compatiblity.
+ * TODO: Delete this code.
+ */
+bool decrypt_old(const std::string &ciphertext, const std::string &key,
+                 std::string &plaintext) {
   unsigned char dkey[EVP_MAX_KEY_LENGTH];
   unsigned char iv[EVP_MAX_IV_LENGTH];
   unsigned char salt[PKCS5_SALT_LEN];
@@ -502,14 +583,14 @@ end:
  */
 bool encrypt(const std::string &plaintext, const std::string &key,
              std::string &ciphertext) {
-  unsigned char dkey[EVP_MAX_KEY_LENGTH];
-  unsigned char iv[EVP_MAX_IV_LENGTH];
-  unsigned char salt[PKCS5_SALT_LEN];
+  unsigned char dkeyiv[EVP_MAX_KEY_LENGTH + EVP_MAX_IV_LENGTH];
+  unsigned char salt[32];
   int sz = 0;
-  std::string s(plaintext.size() + EVP_MAX_IV_LENGTH, '\0');
+  std::string s(plaintext.size() + 1000, '\0');
+  std::string tmp;
 
   EVP_CIPHER_CTX *ctx = NULL;
-  const EVP_CIPHER *cipher = EVP_aes_256_cbc();
+  const EVP_CIPHER *cipher = EVP_aes_256_gcm();
 
   ctx = EVP_CIPHER_CTX_new();
   if (ctx == NULL) {
@@ -521,14 +602,14 @@ bool encrypt(const std::string &plaintext, const std::string &key,
   ciphertext.append(MAGIC);
   ciphertext.append(reinterpret_cast<const char *>(salt), sizeof(salt));
 
-  if (EVP_BytesToKey(cipher, EVP_sha256(), salt,
-                     reinterpret_cast<const unsigned char *>(key.data()),
-                     key.size(), 1, dkey, iv) == 0) {
+  if (PKCS5_PBKDF2_HMAC(key.c_str(), key.size(), salt, sizeof(salt), 5000,
+                        EVP_sha256(), sizeof(dkeyiv), dkeyiv) != 1) {
     perror("failed to derive key and iv");
     goto end;
   }
 
-  if (EVP_CipherInit_ex(ctx, cipher, NULL, dkey, iv, 1) != 1) {
+  if (EVP_CipherInit_ex(ctx, cipher, NULL, dkeyiv, dkeyiv + EVP_MAX_KEY_LENGTH,
+                        1) != 1) {
     perror("failed to init cipher");
     goto end;
   }
@@ -542,7 +623,7 @@ bool encrypt(const std::string &plaintext, const std::string &key,
     goto end;
   }
 
-  ciphertext.append(s, 0, sz);
+  tmp.append(s, 0, sz);
 
   if (EVP_CipherFinal_ex(ctx, reinterpret_cast<unsigned char *>(s.data()),
                          &sz) != 1) {
@@ -550,7 +631,19 @@ bool encrypt(const std::string &plaintext, const std::string &key,
     goto end;
   }
 
-  ciphertext.append(s, 0, sz);
+  tmp.append(s, 0, sz);
+
+  char tag[16];
+  if (EVP_CIPHER_CTX_ctrl(ctx, EVP_CTRL_GCM_GET_TAG, 16, &tag) != 1) {
+    perror("GCM get tag failed");
+    goto end;
+  }
+
+  // ciphertext must contain MAGIC+SALT+TAG in header, but tag is
+  // only available after all data has been processed.
+
+  ciphertext.append(tag, 16);
+  ciphertext.append(tmp);
 
   EVP_CIPHER_CTX_free(ctx);
   return true;
