@@ -65,7 +65,8 @@ UTEST(PWMTest, verifyDecrypt) {
 }
 
 UTEST(PWMTest, verifyDecryptCorrupt) {
-  const std::string encdat("Saltysnack");
+  const std::string encdat(
+      "Salted__\x03\xd5\x9bN\x84\xa2z\x1d!\x1bn:\xde\xa6\x8b\xb5");
   const std::string key("pwmtest");
   std::string s;
   ASSERT_FALSE(decrypt(encdat, key, s));
