@@ -1,6 +1,8 @@
 #include "pwm.h"
 
 inline constexpr std::string_view MAGIC{"Salted__"};
+const int SALT_LENGTH = 32;
+const int TAG_LENGTH = 16;
 
 [[noreturn]] static void bail(const char *fmt, ...) {
   va_list args;
@@ -436,9 +438,9 @@ std::string readpass(const std::string &prompt) {
  */
 bool decrypt(const std::string &ciphertext, const std::string &key,
              std::string &plaintext) {
-  unsigned char salt[32];
+  unsigned char salt[SALT_LENGTH];
   unsigned char dkeyiv[EVP_MAX_KEY_LENGTH + EVP_MAX_IV_LENGTH];
-  char tag[16];
+  char tag[TAG_LENGTH];
   int sz = 0;
   const int hdrsz = MAGIC.size() + sizeof(salt) + sizeof(tag);
   std::string s(ciphertext.size(), '\0');
@@ -446,8 +448,8 @@ bool decrypt(const std::string &ciphertext, const std::string &key,
   EVP_CIPHER_CTX *ctx = NULL;
   const EVP_CIPHER *cipher = EVP_aes_256_gcm();
 
-  if (ciphertext.size() < sizeof(tag) + MAGIC.size() + sizeof(salt)) {
-    perror("corrupt ciphertext");
+  if (ciphertext.size() < hdrsz) {
+    fprintf(stderr, "error: corrupt password store.\n");
     goto end;
   }
 
@@ -476,7 +478,7 @@ bool decrypt(const std::string &ciphertext, const std::string &key,
     goto end;
   }
 
-  if (EVP_CIPHER_CTX_ctrl(ctx, EVP_CTRL_GCM_SET_TAG, 16, tag) != 1) {
+  if (EVP_CIPHER_CTX_ctrl(ctx, EVP_CTRL_GCM_SET_TAG, TAG_LENGTH, tag) != 1) {
     perror("failed to set GCM tag");
     goto end;
   }
@@ -515,7 +517,7 @@ end:
 bool encrypt(const std::string &plaintext, const std::string &key,
              std::string &ciphertext) {
   unsigned char dkeyiv[EVP_MAX_KEY_LENGTH + EVP_MAX_IV_LENGTH];
-  unsigned char salt[32];
+  unsigned char salt[SALT_LENGTH];
   int sz = 0;
   std::string s(plaintext.size() + 1000, '\0');
   std::string tmp;
@@ -564,8 +566,8 @@ bool encrypt(const std::string &plaintext, const std::string &key,
 
   tmp.append(s, 0, sz);
 
-  char tag[16];
-  if (EVP_CIPHER_CTX_ctrl(ctx, EVP_CTRL_GCM_GET_TAG, 16, &tag) != 1) {
+  char tag[TAG_LENGTH];
+  if (EVP_CIPHER_CTX_ctrl(ctx, EVP_CTRL_GCM_GET_TAG, TAG_LENGTH, &tag) != 1) {
     perror("GCM get tag failed");
     goto end;
   }
@@ -573,7 +575,7 @@ bool encrypt(const std::string &plaintext, const std::string &key,
   // ciphertext must contain MAGIC+SALT+TAG in header, but tag is
   // only available after all data has been processed.
 
-  ciphertext.append(tag, 16);
+  ciphertext.append(tag, TAG_LENGTH);
   ciphertext.append(tmp);
 
   EVP_CIPHER_CTX_free(ctx);
