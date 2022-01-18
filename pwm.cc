@@ -337,8 +337,8 @@ bool find(const std::string &needle, const std::string &haystack,
     }
     if (found) {
       if (!exact) {
-        fprintf(stderr, "error: '%s' also matches '%s'.\n", match.name.c_str(),
-                needle.c_str());
+        fprintf(stderr, "error: '%s' matches '%s' and '%s'\n", needle.c_str(),
+                match.name.c_str(), entry.name.c_str());
         return false;
       }
     } else {
