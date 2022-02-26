@@ -91,7 +91,7 @@ static void linger(const std::string_view key) {
     fds.events = POLLIN;
     fds.revents = 0;
 
-    int rv = poll(&fds, 1, 30000);
+    int rv = poll(&fds, 1, 5000);
     if (rv < 0) {
       bail("Failed to poll() sock");
     }
@@ -104,10 +104,21 @@ static void linger(const std::string_view key) {
     if (csock == -1) {
       bail("accept() failed %d %s", csock, strerror(errno));
     }
+    char buf[32] = {0};
+    ssize_t sz = read(csock, &buf, sizeof(buf));
+    if (sz < 1) {
+      close(csock);
+      continue;
+    }
+    buf[sz] = '\0';
+    if (strcmp(buf, "hello\n") != 0) {
+      close(csock);
+      continue;
+    }
 
     write(csock, key.data(), key.size());
     close(csock);
-    clock_gettime(CLOCK_MONOTONIC, &start);  // reset linger timer
+    clock_gettime(CLOCK_MONOTONIC, &start); // reset linger timer
   }
   unlink(path.c_str());
 }
@@ -518,6 +529,10 @@ std::string readpass_fromdaemon() {
   }
 
   if (connect(sock, (struct sockaddr *)&sunaddr, sizeof(sunaddr)) == -1) {
+    return "";
+  }
+  const char *greeting = "hello\n";
+  if (write(sock, greeting, strlen(greeting)) < 1) {
     return "";
   }
   char key[EVP_MAX_KEY_LENGTH] = {0};
