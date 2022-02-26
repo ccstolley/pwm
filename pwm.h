@@ -1,22 +1,29 @@
 #include <algorithm>
 #include <cstdio>
 #include <cstring>
+#include <fcntl.h>
 #include <fstream>
+#include <iterator>
 #include <libgen.h>
 #include <openssl/conf.h>
 #include <openssl/err.h>
 #include <openssl/evp.h>
+#include <poll.h>
 #include <readpassphrase.h>
 #include <sstream>
 #include <stdlib.h>
 #include <string>
+#include <sys/socket.h>
 #include <sys/stat.h>
+#include <sys/time.h>
 #include <sys/types.h>
+#include <sys/un.h>
 #include <unistd.h>
 #include <vector>
 
 static bool save_backup(const std::string &filename);
-static std::string readpass(const std::string &prompt);
+static std::string readpass(const std::string &prompt, bool try_daemon);
+static std::string readpass_fromdaemon();
 
 bool dump_to_file(const std::string &data, const std::string &filename);
 bool encrypt(const std::string &plaintext, const std::string &key,

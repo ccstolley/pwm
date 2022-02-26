@@ -30,21 +30,147 @@ static std::string default_store_path() {
        "options:\n"
        "  -C  change master password on existing store\n"
        "  -d  dump all passwords to stderr\n"
+       "  -l  linger for passwordless queries in future invocations\n"
        "  -u  create/update password with <name> and optional <meta> data\n"
        "  -r  remove password with <name>\n");
 }
 
 [[nodiscard]] static bool is_read_only() { return std::getenv("PWM_READONLY"); }
 
+[[nodiscard]] static bool is_linger_enabled() {
+  return std::getenv("PWM_LINGER");
+}
+
+static bool socket_is_live(std::string_view path) {
+  int sock;
+  struct sockaddr_un sunaddr;
+
+  memset(&sunaddr, 0, sizeof(sunaddr));
+  sunaddr.sun_family = AF_UNIX;
+  snprintf(sunaddr.sun_path, sizeof(sunaddr.sun_path), "%s", path.data());
+
+  if ((sock = socket(AF_UNIX, SOCK_STREAM, 0)) == -1) {
+    return false;
+  }
+
+  if (connect(sock, reinterpret_cast<struct sockaddr *>(&sunaddr),
+              sizeof(sunaddr)) == 0) {
+    close(sock);
+    return true;
+  }
+  return false;
+}
+
+/* serve master password to future invocations for a limited period of time */
+static void linger(const std::string_view key) {
+  close(fileno(stdin));
+  pid_t pid = fork();
+  if (pid != 0) {
+    exit(0);
+  }
+  close(fileno(stdout));
+
+  struct timespec start;
+  clock_gettime(CLOCK_MONOTONIC, &start);
+
+  std::string path{"/tmp/pwm."};
+  path += std::getenv("USER");
+  int sock;
+  struct sockaddr_un sunaddr;
+
+  memset(&sunaddr, 0, sizeof(sunaddr));
+  sunaddr.sun_family = AF_UNIX;
+  snprintf(sunaddr.sun_path, sizeof(sunaddr.sun_path), "%s", path.c_str());
+
+  if ((sock = socket(AF_UNIX, SOCK_STREAM, 0)) == -1) {
+    bail("Unable to create socket");
+  }
+
+  if (fcntl(sock, F_SETFD, FD_CLOEXEC) == -1) {
+    close(sock);
+    bail("Unable to set FD_CLOEXEC on socket");
+  }
+
+  if (fcntl(sock, F_SETFL, O_NONBLOCK) == -1) {
+    close(sock);
+    bail("Unable to set NONBLOCK on socket");
+  }
+
+  if (bind(sock, (struct sockaddr *)&sunaddr, sizeof(sunaddr)) == -1) {
+    if (!socket_is_live(path)) {
+      unlink(path.c_str());
+      if (bind(sock, (struct sockaddr *)&sunaddr, sizeof(sunaddr)) == -1) {
+        bail("Unable to bind socket");
+      }
+    } else {
+      // already lingering, so do nothing.
+      return;
+    }
+  }
+
+  if (listen(sock, 2) == -1) {
+    bail("Unable to listen on socket %s", strerror(errno));
+  }
+
+  if (pledge("stdio inet", NULL) != 0) {
+    bail("pledge(2) failed at %d.", __LINE__);
+  }
+
+  while (true) {
+    struct timespec now;
+    clock_gettime(CLOCK_MONOTONIC, &now);
+
+    if (now.tv_sec - start.tv_sec > 21600) {
+      break;
+    }
+
+    struct pollfd fds;
+    fds.fd = sock;
+    fds.events = POLLIN;
+    fds.revents = 0;
+
+    int rv = poll(&fds, 1, 5000);
+    if (rv < 0) {
+      bail("Failed to poll() sock");
+    }
+    if (rv == 0) {
+      continue;
+    }
+    struct sockaddr_storage addr;
+    socklen_t len = sizeof(addr);
+    int csock = accept(sock, (struct sockaddr *)&addr, &len);
+    if (csock == -1) {
+      bail("accept() failed %d %s", csock, strerror(errno));
+    }
+    char buf[32] = {0};
+    ssize_t sz = read(csock, &buf, sizeof(buf));
+    if (sz < 1) {
+      close(csock);
+      continue;
+    }
+    buf[sz] = '\0';
+    if (strcmp(buf, "hello\n") != 0) {
+      close(csock);
+      continue;
+    }
+
+    write(csock, key.data(), key.size());
+    close(csock);
+    clock_gettime(CLOCK_MONOTONIC, &start); // reset linger timer
+  }
+  unlink(path.c_str());
+}
+
 int main(int argc, char **argv) {
   struct ent entry;
-  bool update_flag = false;
-  bool remove_flag = false;
-  bool dump_flag = false;
   bool chpass_flag = false;
+  bool dump_flag = false;
+  bool linger_flag = false;
+  bool remove_flag = false;
+  bool update_flag = false;
   int ch;
 
-  while ((ch = getopt(argc, argv, "Cdu:r:")) != -1) {
+  while ((ch = getopt(argc, argv, "Cdlu:r:")) != -1) {
     switch (ch) {
     case 'r':
       remove_flag = true;
@@ -53,6 +179,9 @@ int main(int argc, char **argv) {
     case 'u':
       update_flag = true;
       entry.name = optarg;
+      break;
+    case 'l':
+      linger_flag = true;
       break;
     case 'd':
       dump_flag = true;
@@ -81,12 +210,12 @@ int main(int argc, char **argv) {
     usage();
   }
 
-  if (update_flag || remove_flag || chpass_flag) {
-    if (pledge("stdio tty fattr cpath rpath wpath", NULL) != 0) {
+  if (update_flag || remove_flag || chpass_flag || linger_flag) {
+    if (pledge("proc unix inet stdio tty fattr cpath rpath wpath", NULL) != 0) {
       bail("pledge(2) failed at %d.", __LINE__);
     }
   } else {
-    if (pledge("stdio tty rpath fattr", NULL) != 0) {
+    if (pledge("proc unix inet stdio tty rpath fattr", NULL) != 0) {
       bail("pledge(2) failed at %d.", __LINE__);
     }
   }
@@ -113,20 +242,19 @@ int main(int argc, char **argv) {
     }
     fprintf(stderr, "Initializing new password store.\n");
     init_new = true;
-    key = readpass("set root passphrase: ");
-    if (key != readpass(" confirm passphrase: ")) {
+    key = readpass("set root passphrase: ", false);
+    if (key != readpass(" confirm passphrase: ", false)) {
       bail("passwords didn't match.");
     }
   } else {
     check_perms(store_path);
-    key = readpass("passphrase: ");
+    key = readpass("passphrase: ", true);
     if (!decrypt(ciphertext, key, data)) {
       fprintf(stderr, "Decrypt failed\n");
       return 1;
     }
   }
   if (dump_flag) {
-    explicit_bzero(&key[0], key.size());
     dump(data);
   } else if (update_flag || remove_flag) {
     for (int i = 0; i < argc; i++) {
@@ -150,7 +278,6 @@ int main(int argc, char **argv) {
       bail("re-encrypt failed! backup saved.");
     }
     explicit_bzero(&newdata[0], newdata.size());
-    explicit_bzero(&key[0], key.size());
     if (!dump_to_file(data, store_path)) {
       bail("failed to write updated store.");
     }
@@ -163,8 +290,8 @@ int main(int argc, char **argv) {
   } else if (chpass_flag) {
     explicit_bzero(&key[0], key.size());
     fprintf(stderr, "Resetting password for %s.\n", store_path.c_str());
-    key = readpass("set root passphrase: ");
-    if (key != readpass(" confirm passphrase: ")) {
+    key = readpass("set root passphrase: ", false);
+    if (key != readpass(" confirm passphrase: ", false)) {
       bail("passwords didn't match.");
     }
     if (!init_new && !save_backup(store_path)) {
@@ -174,7 +301,6 @@ int main(int argc, char **argv) {
     if (!encrypt(data, key, newdata)) {
       bail("re-encrypt failed! backup saved.");
     }
-    explicit_bzero(&key[0], key.size());
     explicit_bzero(&data[0], data.size());
     if (!dump_to_file(newdata, store_path)) {
       bail("failed to write updated store. backup saved.");
@@ -184,7 +310,6 @@ int main(int argc, char **argv) {
             "  rm %s.bak\nif your old password was compromised.\n",
             store_path.c_str());
   } else {
-    explicit_bzero(&key[0], key.size());
     if (find(argv[0], data, entry)) {
       if (entry.updated_at) {
         char buf[64];
@@ -197,6 +322,10 @@ int main(int argc, char **argv) {
     } else {
       fprintf(stderr, "Not found.\n");
     }
+  }
+
+  if (linger_flag || is_linger_enabled()) {
+    linger(key);
   }
   return 0;
 }
@@ -425,8 +554,42 @@ std::string trim(const std::string &s) {
           .base());
 }
 
-std::string readpass(const std::string &prompt) {
+std::string readpass_fromdaemon() {
+  struct sockaddr_un sunaddr;
+  memset(&sunaddr, 0, sizeof(sunaddr));
+  sunaddr.sun_family = AF_UNIX;
+  snprintf(sunaddr.sun_path, sizeof(sunaddr.sun_path), "/tmp/pwm.%s",
+           std::getenv("USER"));
+  int sock;
+
+  if ((sock = socket(AF_UNIX, SOCK_STREAM, 0)) == -1) {
+    return "";
+  }
+
+  if (connect(sock, (struct sockaddr *)&sunaddr, sizeof(sunaddr)) == -1) {
+    return "";
+  }
+  const char *greeting = "hello\n";
+  if (write(sock, greeting, strlen(greeting)) < 1) {
+    return "";
+  }
   char key[EVP_MAX_KEY_LENGTH] = {0};
+  if (read(sock, &key, sizeof(key)) < 1) {
+    return "";
+  }
+  return key;
+}
+
+std::string readpass(const std::string &prompt, bool try_daemon) {
+  char key[EVP_MAX_KEY_LENGTH] = {0};
+
+  if (try_daemon) {
+    auto k = readpass_fromdaemon();
+    if (!k.empty()) {
+      return k;
+    }
+  }
+
   if (readpassphrase(prompt.c_str(), key, sizeof(key), 0) == NULL) {
     bail("failed to read passphrase");
   }
