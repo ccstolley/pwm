@@ -37,6 +37,10 @@ static std::string default_store_path() {
 
 [[nodiscard]] static bool is_read_only() { return std::getenv("PWM_READONLY"); }
 
+[[nodiscard]] static bool is_linger_enabled() {
+  return std::getenv("PWM_LINGER");
+}
+
 /* serve master password to future invocations for a limited period of time */
 static void linger(const std::string_view key) {
 
@@ -286,7 +290,7 @@ int main(int argc, char **argv) {
     }
   }
 
-  if (linger_flag) {
+  if (linger_flag || is_linger_enabled()) {
     linger(key);
   }
   return 0;
