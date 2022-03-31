@@ -41,13 +41,35 @@ static std::string default_store_path() {
   return std::getenv("PWM_LINGER");
 }
 
+static bool socket_is_live(std::string_view path) {
+  int sock;
+  struct sockaddr_un sunaddr;
+
+  memset(&sunaddr, 0, sizeof(sunaddr));
+  sunaddr.sun_family = AF_UNIX;
+  snprintf(sunaddr.sun_path, sizeof(sunaddr.sun_path), "%s", path.data());
+
+  if ((sock = socket(AF_UNIX, SOCK_STREAM, 0)) == -1) {
+    return false;
+  }
+
+  if (connect(sock, reinterpret_cast<struct sockaddr *>(&sunaddr),
+              sizeof(sunaddr)) == 0) {
+    close(sock);
+    return true;
+  }
+  return false;
+}
+
 /* serve master password to future invocations for a limited period of time */
 static void linger(const std::string_view key) {
-
+  close(fileno(stdin));
   pid_t pid = fork();
   if (pid != 0) {
     exit(0);
   }
+  close(fileno(stdout));
+
   struct timespec start;
   clock_gettime(CLOCK_MONOTONIC, &start);
 
@@ -75,7 +97,15 @@ static void linger(const std::string_view key) {
   }
 
   if (bind(sock, (struct sockaddr *)&sunaddr, sizeof(sunaddr)) == -1) {
-    bail("Unable to bind server sock\n");
+    if (!socket_is_live(path)) {
+      unlink(path.c_str());
+      if (bind(sock, (struct sockaddr *)&sunaddr, sizeof(sunaddr)) == -1) {
+        bail("Unable to bind socket");
+      }
+    } else {
+      // already lingering, so do nothing.
+      return;
+    }
   }
 
   if (listen(sock, 2) == -1) {
@@ -86,7 +116,7 @@ static void linger(const std::string_view key) {
     struct timespec now;
     clock_gettime(CLOCK_MONOTONIC, &now);
 
-    if (now.tv_sec - start.tv_sec > 3600) {
+    if (now.tv_sec - start.tv_sec > 21600) {
       break;
     }
 
