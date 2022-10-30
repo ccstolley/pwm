@@ -11,6 +11,7 @@
 #include <poll.h>
 #include <portable.h>
 #include <readpassphrase.h>
+#include <signal.h>
 #include <sstream>
 #include <stdlib.h>
 #include <string>

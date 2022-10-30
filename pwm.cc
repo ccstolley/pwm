@@ -61,6 +61,8 @@ static bool socket_is_live(std::string_view path) {
   return false;
 }
 
+static void sigpipe(__attribute__((unused)) int a) { bail("Received SIGPIPE"); }
+
 /* serve master password to future invocations for a limited period of time */
 static void linger(const std::string_view key) {
   close(fileno(stdin));
@@ -85,6 +87,8 @@ static void linger(const std::string_view key) {
   if ((sock = socket(AF_UNIX, SOCK_STREAM, 0)) == -1) {
     bail("Unable to create socket");
   }
+
+  signal(SIGPIPE, sigpipe);
 
   if (fcntl(sock, F_SETFD, FD_CLOEXEC) == -1) {
     close(sock);
