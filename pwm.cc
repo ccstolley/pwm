@@ -3,6 +3,7 @@
 inline constexpr std::string_view MAGIC{"Salted__"};
 const int SALT_LENGTH = 32;
 const int TAG_LENGTH = 16;
+const int PBKDF2_ITER_COUNT = 500000;
 
 [[noreturn]] static void bail(const char *fmt, ...) {
   va_list args;
@@ -466,8 +467,9 @@ bool decrypt(const std::string &ciphertext, const std::string &key,
 
   ciphertext.copy(tag, sizeof(tag), MAGIC.size() + sizeof(salt));
 
-  if (PKCS5_PBKDF2_HMAC(key.c_str(), key.size(), salt, sizeof(salt), 5000,
-                        EVP_sha256(), sizeof(dkeyiv), dkeyiv) != 1) {
+  if (PKCS5_PBKDF2_HMAC(key.c_str(), key.size(), salt, sizeof(salt),
+                        PBKDF2_ITER_COUNT, EVP_sha256(), sizeof(dkeyiv),
+                        dkeyiv) != 1) {
     perror("failed to derive key and iv");
     goto end;
   }
@@ -535,8 +537,9 @@ bool encrypt(const std::string &plaintext, const std::string &key,
   ciphertext.append(MAGIC);
   ciphertext.append(reinterpret_cast<const char *>(salt), sizeof(salt));
 
-  if (PKCS5_PBKDF2_HMAC(key.c_str(), key.size(), salt, sizeof(salt), 5000,
-                        EVP_sha256(), sizeof(dkeyiv), dkeyiv) != 1) {
+  if (PKCS5_PBKDF2_HMAC(key.c_str(), key.size(), salt, sizeof(salt),
+                        PBKDF2_ITER_COUNT, EVP_sha256(), sizeof(dkeyiv),
+                        dkeyiv) != 1) {
     perror("failed to derive key and iv");
     goto end;
   }
