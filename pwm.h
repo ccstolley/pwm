@@ -1,5 +1,8 @@
 #include <algorithm>
+#include <cassert>
+#include <csignal>
 #include <cstdio>
+#include <cstdlib>
 #include <cstring>
 #include <fcntl.h>
 #include <fstream>
@@ -11,7 +14,6 @@
 #include <poll.h>
 #include <readpassphrase.h>
 #include <sstream>
-#include <stdlib.h>
 #include <string>
 #include <sys/socket.h>
 #include <sys/stat.h>
@@ -59,4 +61,17 @@ struct ent {
     password.clear();
     updated_at = 0;
   }
+};
+
+struct EvpCipherContext {
+  EVP_CIPHER_CTX *get() const { return ctx_; }
+
+  EvpCipherContext() {
+    ctx_ = EVP_CIPHER_CTX_new();
+    assert(ctx_ != nullptr);
+  }
+  ~EvpCipherContext() { EVP_CIPHER_CTX_free(ctx_); }
+
+private:
+  EVP_CIPHER_CTX *ctx_;
 };

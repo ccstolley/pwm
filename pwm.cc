@@ -609,23 +609,17 @@ bool decrypt(const std::string &ciphertext, const std::string &key,
   int sz = 0;
   const int hdrsz = MAGIC.size() + sizeof(salt) + sizeof(tag);
   std::string s(ciphertext.size(), '\0');
-
-  EVP_CIPHER_CTX *ctx = NULL;
+  EvpCipherContext ctx;
   const EVP_CIPHER *cipher = EVP_aes_256_gcm();
 
   if (ciphertext.size() < hdrsz) {
     fprintf(stderr, "error: corrupt password store.\n");
-    goto end;
-  }
-
-  ctx = EVP_CIPHER_CTX_new();
-  if (ctx == NULL) {
-    goto end;
+    return false;
   }
 
   if (ciphertext.substr(0, MAGIC.size()) != MAGIC) {
     perror("invalid magic string");
-    goto end;
+    return false;
   }
   ciphertext.copy(reinterpret_cast<char *>(salt), sizeof(salt), MAGIC.size());
 
@@ -635,46 +629,42 @@ bool decrypt(const std::string &ciphertext, const std::string &key,
                         PBKDF2_ITER_COUNT, EVP_sha256(), sizeof(dkeyiv),
                         dkeyiv) != 1) {
     perror("failed to derive key and iv");
-    goto end;
+    return false;
   }
 
-  if (EVP_CipherInit_ex(ctx, cipher, NULL, dkeyiv, dkeyiv + EVP_MAX_KEY_LENGTH,
-                        0) != 1) {
+  if (EVP_CipherInit_ex(ctx.get(), cipher, NULL, dkeyiv,
+                        dkeyiv + EVP_MAX_KEY_LENGTH, 0) != 1) {
     perror("failed to init cipher");
-    goto end;
+    return false;
   }
 
-  if (EVP_CIPHER_CTX_ctrl(ctx, EVP_CTRL_GCM_SET_TAG, TAG_LENGTH, tag) != 1) {
+  if (EVP_CIPHER_CTX_ctrl(ctx.get(), EVP_CTRL_GCM_SET_TAG, TAG_LENGTH, tag) !=
+      1) {
     perror("failed to set GCM tag");
-    goto end;
+    return false;
   }
 
   sz = s.size();
   if (EVP_CipherUpdate(
-          ctx, reinterpret_cast<unsigned char *>(s.data()), &sz,
+          ctx.get(), reinterpret_cast<unsigned char *>(s.data()), &sz,
           reinterpret_cast<const unsigned char *>(&(ciphertext.data()[hdrsz])),
           ciphertext.size() - hdrsz) != 1) {
     perror("CipherUpdate() failed");
-    goto end;
+    return false;
   }
 
   plaintext.append(s, 0, sz);
 
-  if (EVP_CipherFinal_ex(ctx, reinterpret_cast<unsigned char *>(s.data()),
+  if (EVP_CipherFinal_ex(ctx.get(), reinterpret_cast<unsigned char *>(s.data()),
                          &sz) != 1) {
     perror("CipherFinal() failed");
-    goto end;
+    return false;
   }
 
   plaintext.append(s, 0, sz);
   plaintext = sort_data(plaintext);
 
-  EVP_CIPHER_CTX_free(ctx);
   return true;
-
-end:
-  EVP_CIPHER_CTX_free(ctx);
-  return false;
 }
 
 /**
@@ -688,13 +678,8 @@ bool encrypt(const std::string &plaintext, const std::string &key,
   std::string s(plaintext.size() + 1000, '\0');
   std::string tmp;
 
-  EVP_CIPHER_CTX *ctx = NULL;
+  EvpCipherContext ctx;
   const EVP_CIPHER *cipher = EVP_aes_256_gcm();
-
-  ctx = EVP_CIPHER_CTX_new();
-  if (ctx == NULL) {
-    goto end;
-  }
 
   arc4random_buf(salt, sizeof(salt));
 
@@ -705,38 +690,39 @@ bool encrypt(const std::string &plaintext, const std::string &key,
                         PBKDF2_ITER_COUNT, EVP_sha256(), sizeof(dkeyiv),
                         dkeyiv) != 1) {
     perror("failed to derive key and iv");
-    goto end;
+    return false;
   }
 
-  if (EVP_CipherInit_ex(ctx, cipher, NULL, dkeyiv, dkeyiv + EVP_MAX_KEY_LENGTH,
-                        1) != 1) {
+  if (EVP_CipherInit_ex(ctx.get(), cipher, NULL, dkeyiv,
+                        dkeyiv + EVP_MAX_KEY_LENGTH, 1) != 1) {
     perror("failed to init cipher");
-    goto end;
+    return false;
   }
 
   sz = s.size();
   if (EVP_CipherUpdate(
-          ctx, reinterpret_cast<unsigned char *>(s.data()), &sz,
+          ctx.get(), reinterpret_cast<unsigned char *>(s.data()), &sz,
           reinterpret_cast<const unsigned char *>(plaintext.data()),
           plaintext.size()) != 1) {
     perror("CipherUpdate() failed");
-    goto end;
+    return false;
   }
 
   tmp.append(s, 0, sz);
 
-  if (EVP_CipherFinal_ex(ctx, reinterpret_cast<unsigned char *>(s.data()),
+  if (EVP_CipherFinal_ex(ctx.get(), reinterpret_cast<unsigned char *>(s.data()),
                          &sz) != 1) {
     perror("CipherFinal() failed");
-    goto end;
+    return false;
   }
 
   tmp.append(s, 0, sz);
 
   char tag[TAG_LENGTH];
-  if (EVP_CIPHER_CTX_ctrl(ctx, EVP_CTRL_GCM_GET_TAG, TAG_LENGTH, &tag) != 1) {
+  if (EVP_CIPHER_CTX_ctrl(ctx.get(), EVP_CTRL_GCM_GET_TAG, TAG_LENGTH, &tag) !=
+      1) {
     perror("GCM get tag failed");
-    goto end;
+    return false;
   }
 
   // ciphertext must contain MAGIC+SALT+TAG in header, but tag is
@@ -745,12 +731,7 @@ bool encrypt(const std::string &plaintext, const std::string &key,
   ciphertext.append(tag, TAG_LENGTH);
   ciphertext.append(tmp);
 
-  EVP_CIPHER_CTX_free(ctx);
   return true;
-
-end:
-  EVP_CIPHER_CTX_free(ctx);
-  return false;
 }
 
 std::string random_str(size_t sz) {
