@@ -3,6 +3,7 @@
 inline constexpr std::string_view MAGIC{"Salted__"};
 const int SALT_LENGTH = 32;
 const int TAG_LENGTH = 16;
+const int HDRSZ = MAGIC.size() + SALT_LENGTH + TAG_LENGTH;
 const int PBKDF2_ITER_COUNT = 500000;
 
 [[noreturn]] static void bail(const char *fmt, ...) {
@@ -62,6 +63,8 @@ static bool socket_is_live(std::string_view path) {
   return false;
 }
 
+static void sigpipe(__attribute__((unused)) int a) { bail("Received SIGPIPE"); }
+
 /* serve master password to future invocations for a limited period of time */
 static void linger(const std::string_view key) {
   close(fileno(stdin));
@@ -116,6 +119,8 @@ static void linger(const std::string_view key) {
   if (pledge("stdio inet", NULL) != 0) {
     bail("pledge(2) failed at %d.", __LINE__);
   }
+
+  signal(SIGPIPE, sigpipe);
 
   while (true) {
     struct timespec now;
@@ -598,6 +603,36 @@ std::string readpass(const std::string &prompt, bool try_daemon) {
 }
 
 /**
+ * derive encryption key from salt + master key.
+ */
+bool derive_key(const std::string &ciphertext, const std::string &key,
+                std::string &dkeyiv) {
+
+  dkeyiv.resize(EVP_MAX_KEY_LENGTH + EVP_MAX_IV_LENGTH);
+
+  if (ciphertext.size() < HDRSZ) {
+    fprintf(stderr, "error: corrupt password store.\n");
+    return false;
+  }
+
+  if (ciphertext.substr(0, MAGIC.size()) != MAGIC) {
+    perror("invalid magic string");
+    return false;
+  }
+
+  std::string salt = ciphertext.substr(MAGIC.size(), SALT_LENGTH);
+  if (PKCS5_PBKDF2_HMAC(
+          key.c_str(), key.size(),
+          reinterpret_cast<unsigned char *>(salt.data()), SALT_LENGTH,
+          PBKDF2_ITER_COUNT, EVP_sha256(), dkeyiv.size(),
+          reinterpret_cast<unsigned char *>(dkeyiv.data())) != 1) {
+    perror("failed to derive key and iv");
+    return false;
+  }
+  return true;
+}
+
+/**
  * Decrypt ciphertext with key and store it in plaintext.
  */
 bool decrypt(const std::string &ciphertext, const std::string &key,
@@ -606,12 +641,11 @@ bool decrypt(const std::string &ciphertext, const std::string &key,
   unsigned char dkeyiv[EVP_MAX_KEY_LENGTH + EVP_MAX_IV_LENGTH];
   char tag[TAG_LENGTH];
   int sz = 0;
-  const int hdrsz = MAGIC.size() + sizeof(salt) + sizeof(tag);
   std::string s(ciphertext.size(), '\0');
   EvpCipherContext ctx;
   const EVP_CIPHER *cipher = EVP_aes_256_gcm();
 
-  if (ciphertext.size() < hdrsz) {
+  if (ciphertext.size() < HDRSZ) {
     fprintf(stderr, "error: corrupt password store.\n");
     return false;
   }
@@ -646,8 +680,8 @@ bool decrypt(const std::string &ciphertext, const std::string &key,
   sz = s.size();
   if (EVP_CipherUpdate(
           ctx.get(), reinterpret_cast<unsigned char *>(s.data()), &sz,
-          reinterpret_cast<const unsigned char *>(&(ciphertext.data()[hdrsz])),
-          ciphertext.size() - hdrsz) != 1) {
+          reinterpret_cast<const unsigned char *>(&(ciphertext.data()[HDRSZ])),
+          ciphertext.size() - HDRSZ) != 1) {
     perror("CipherUpdate() failed");
     return false;
   }
