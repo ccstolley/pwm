@@ -160,7 +160,6 @@ static void linger(const std::string_view key) {
     clock_gettime(CLOCK_MONOTONIC, &start); // reset linger timer
   }
   close(sock);
-  unlink(path.c_str());
 }
 
 int main(int argc, char **argv) {
