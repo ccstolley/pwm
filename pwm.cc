@@ -130,11 +130,7 @@ static void linger(const std::string_view key) {
       break;
     }
 
-    struct pollfd fds;
-    fds.fd = sock;
-    fds.events = POLLIN;
-    fds.revents = 0;
-
+    pollfd_t fds{sock, POLLIN, 0};
     int rv = poll(&fds, 1, 5000);
     if (rv < 0) {
       bail("Failed to poll() sock");
@@ -149,6 +145,12 @@ static void linger(const std::string_view key) {
       bail("accept() failed %d %s", csock, strerror(errno));
     }
     char buf[32] = {0};
+
+    pollfd_t cfd{csock, POLLIN, 0};
+    if (poll(&cfd, 1, 2000) <= 0) {
+      close(csock);
+      continue;
+    }
     ssize_t sz = read(csock, &buf, sizeof(buf));
     if (sz < 1) {
       close(csock);
@@ -239,7 +241,7 @@ int main(int argc, char **argv) {
   }
 
   auto ciphertext = read_file(store_path);
-  std::string data, key;
+  std::string data, dkeyiv, key;
   bool init_new = false;
 
   if (ciphertext.empty()) {
@@ -248,14 +250,18 @@ int main(int argc, char **argv) {
     }
     fprintf(stderr, "Initializing new password store.\n");
     init_new = true;
-    key = readpass("set root passphrase: ", false);
-    if (key != readpass(" confirm passphrase: ", false)) {
+    key = readpass("set root passphrase: ");
+    if (key != readpass(" confirm passphrase: ")) {
       bail("passwords didn't match.");
     }
   } else {
     check_perms(store_path);
-    key = readpass("passphrase: ", true);
-    if (!decrypt(ciphertext, key, data)) {
+    dkeyiv = readpass_fromdaemon();
+    if (dkeyiv.empty()) {
+      key = readpass("passphrase: ");
+      derive_key(ciphertext, key, dkeyiv);
+    }
+    if (!decrypt(ciphertext, dkeyiv, data)) {
       fprintf(stderr, "Decrypt failed\n");
       return 1;
     }
@@ -296,8 +302,8 @@ int main(int argc, char **argv) {
   } else if (chpass_flag) {
     explicit_bzero(&key[0], key.size());
     fprintf(stderr, "Resetting password for %s.\n", store_path.c_str());
-    key = readpass("set root passphrase: ", false);
-    if (key != readpass(" confirm passphrase: ", false)) {
+    key = readpass("set root passphrase: ");
+    if (key != readpass(" confirm passphrase: ")) {
       bail("passwords didn't match.");
     }
     if (!init_new && !save_backup(store_path)) {
@@ -330,8 +336,8 @@ int main(int argc, char **argv) {
     }
   }
 
-  if (linger_flag || is_linger_enabled()) {
-    linger(key);
+  if (!dkeyiv.empty() && (linger_flag || is_linger_enabled())) {
+    linger(dkeyiv);
   }
   return 0;
 }
@@ -579,22 +585,15 @@ std::string readpass_fromdaemon() {
   if (write(sock, greeting, strlen(greeting)) < 1) {
     return "";
   }
-  char key[EVP_MAX_KEY_LENGTH] = {0};
-  if (read(sock, &key, sizeof(key)) < 1) {
+  std::string key(EVP_MAX_KEY_LENGTH + EVP_MAX_IV_LENGTH, '\0');
+  if (read(sock, &key.data()[0], key.size()) < 1) {
     return "";
   }
   return key;
 }
 
-std::string readpass(const std::string &prompt, bool try_daemon) {
+std::string readpass(const std::string &prompt) {
   char key[EVP_MAX_KEY_LENGTH] = {0};
-
-  if (try_daemon) {
-    auto k = readpass_fromdaemon();
-    if (!k.empty()) {
-      return k;
-    }
-  }
 
   if (readpassphrase(prompt.c_str(), key, sizeof(key), 0) == NULL) {
     bail("failed to read passphrase");
@@ -633,12 +632,11 @@ bool derive_key(const std::string &ciphertext, const std::string &key,
 }
 
 /**
- * Decrypt ciphertext with key and store it in plaintext.
+ * Decrypt ciphertext with derived key and store it in plaintext.
  */
-bool decrypt(const std::string &ciphertext, const std::string &key,
+bool decrypt(const std::string &ciphertext, const std::string &dkeyiv,
              std::string &plaintext) {
   unsigned char salt[SALT_LENGTH];
-  unsigned char dkeyiv[EVP_MAX_KEY_LENGTH + EVP_MAX_IV_LENGTH];
   char tag[TAG_LENGTH];
   int sz = 0;
   std::string s(ciphertext.size(), '\0');
@@ -655,18 +653,13 @@ bool decrypt(const std::string &ciphertext, const std::string &key,
     return false;
   }
   ciphertext.copy(reinterpret_cast<char *>(salt), sizeof(salt), MAGIC.size());
-
   ciphertext.copy(tag, sizeof(tag), MAGIC.size() + sizeof(salt));
 
-  if (PKCS5_PBKDF2_HMAC(key.c_str(), key.size(), salt, sizeof(salt),
-                        PBKDF2_ITER_COUNT, EVP_sha256(), sizeof(dkeyiv),
-                        dkeyiv) != 1) {
-    perror("failed to derive key and iv");
-    return false;
-  }
-
-  if (EVP_CipherInit_ex(ctx.get(), cipher, NULL, dkeyiv,
-                        dkeyiv + EVP_MAX_KEY_LENGTH, 0) != 1) {
+  if (EVP_CipherInit_ex(ctx.get(), cipher, NULL,
+                        reinterpret_cast<const unsigned char *>(dkeyiv.data()),
+                        reinterpret_cast<const unsigned char *>(dkeyiv.data()) +
+                            EVP_MAX_KEY_LENGTH,
+                        0) != 1) {
     perror("failed to init cipher");
     return false;
   }
