@@ -1,5 +1,8 @@
 #include <algorithm>
+#include <cassert>
+#include <csignal>
 #include <cstdio>
+#include <cstdlib>
 #include <cstring>
 #include <fcntl.h>
 #include <fstream>
@@ -11,9 +14,7 @@
 #include <poll.h>
 #include <portable.h>
 #include <readpassphrase.h>
-#include <signal.h>
 #include <sstream>
-#include <stdlib.h>
 #include <string>
 #include <sys/socket.h>
 #include <sys/stat.h>
@@ -24,13 +25,15 @@
 #include <vector>
 
 static bool save_backup(const std::string &filename);
-static std::string readpass(const std::string &prompt, bool try_daemon);
+static std::string readpass(const std::string &prompt);
 static std::string readpass_fromdaemon();
 
 bool dump_to_file(const std::string &data, const std::string &filename);
+bool derive_key(const std::string &ciphertext, const std::string &key,
+                std::string &dkeyiv);
 bool encrypt(const std::string &plaintext, const std::string &key,
              std::string &ciphertext);
-bool decrypt(const std::string &ciphertext, const std::string &key,
+bool decrypt(const std::string &ciphertext, const std::string &dkeyiv,
              std::string &plaintext);
 std::string trim(const std::string &s);
 std::string read_file(const std::string &filename);
@@ -61,4 +64,17 @@ struct ent {
     password.clear();
     updated_at = 0;
   }
+};
+
+struct EvpCipherContext {
+  EVP_CIPHER_CTX *get() const { return ctx_; }
+
+  EvpCipherContext() {
+    ctx_ = EVP_CIPHER_CTX_new();
+    assert(ctx_ != nullptr);
+  }
+  ~EvpCipherContext() { EVP_CIPHER_CTX_free(ctx_); }
+
+private:
+  EVP_CIPHER_CTX *ctx_;
 };

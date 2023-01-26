@@ -3,6 +3,7 @@
 inline constexpr std::string_view MAGIC{"Salted__"};
 const int SALT_LENGTH = 32;
 const int TAG_LENGTH = 16;
+const int HDRSZ = MAGIC.size() + SALT_LENGTH + TAG_LENGTH;
 const int PBKDF2_ITER_COUNT = 500000;
 
 [[noreturn]] static void bail(const char *fmt, ...) {
@@ -65,6 +66,8 @@ static bool socket_is_live(std::string_view path) {
 static void sigpipe(__attribute__((unused)) int a) { bail("Received SIGPIPE"); }
 
 /* serve master password to future invocations for a limited period of time */
+using pollfd_t = struct pollfd;
+
 static void linger(const std::string_view key) {
   close(fileno(stdin));
   pid_t pid = fork();
@@ -88,8 +91,6 @@ static void linger(const std::string_view key) {
   if ((sock = socket(AF_UNIX, SOCK_STREAM, 0)) == -1) {
     bail("Unable to create socket");
   }
-
-  signal(SIGPIPE, sigpipe);
 
   if (fcntl(sock, F_SETFD, FD_CLOEXEC) == -1) {
     close(sock);
@@ -117,6 +118,12 @@ static void linger(const std::string_view key) {
     bail("Unable to listen on socket %s", strerror(errno));
   }
 
+  if (pledge("stdio inet", NULL) != 0) {
+    bail("pledge(2) failed at %d.", __LINE__);
+  }
+
+  signal(SIGPIPE, sigpipe);
+
   while (true) {
     struct timespec now;
     clock_gettime(CLOCK_MONOTONIC, &now);
@@ -125,11 +132,7 @@ static void linger(const std::string_view key) {
       break;
     }
 
-    struct pollfd fds;
-    fds.fd = sock;
-    fds.events = POLLIN;
-    fds.revents = 0;
-
+    pollfd_t fds{sock, POLLIN, 0};
     int rv = poll(&fds, 1, 5000);
     if (rv < 0) {
       bail("Failed to poll() sock");
@@ -144,6 +147,13 @@ static void linger(const std::string_view key) {
       bail("accept() failed %d %s", csock, strerror(errno));
     }
     char buf[32] = {0};
+
+    pollfd_t cfd{csock, POLLIN, 0};
+    if (poll(&cfd, 1, 2000) <= 0) {
+      close(csock);
+      continue;
+    }
+
     ssize_t sz = read(csock, &buf, sizeof(buf));
     if (sz < 1) {
       close(csock);
@@ -159,7 +169,7 @@ static void linger(const std::string_view key) {
     close(csock);
     clock_gettime(CLOCK_MONOTONIC, &start); // reset linger timer
   }
-  unlink(path.c_str());
+  close(sock);
 }
 
 int main(int argc, char **argv) {
@@ -211,12 +221,12 @@ int main(int argc, char **argv) {
     usage();
   }
 
-  if (update_flag || remove_flag || chpass_flag) {
-    if (pledge("stdio tty fattr cpath rpath wpath", NULL) != 0) {
+  if (update_flag || remove_flag || chpass_flag || linger_flag) {
+    if (pledge("proc unix inet stdio tty fattr cpath rpath wpath", NULL) != 0) {
       bail("pledge(2) failed at %d.", __LINE__);
     }
   } else {
-    if (pledge("stdio tty rpath fattr", NULL) != 0) {
+    if (pledge("proc unix inet stdio tty rpath fattr", NULL) != 0) {
       bail("pledge(2) failed at %d.", __LINE__);
     }
   }
@@ -234,7 +244,7 @@ int main(int argc, char **argv) {
   }
 
   auto ciphertext = read_file(store_path);
-  std::string data, key;
+  std::string data, dkeyiv, key;
   bool init_new = false;
 
   if (ciphertext.empty()) {
@@ -243,14 +253,18 @@ int main(int argc, char **argv) {
     }
     fprintf(stderr, "Initializing new password store.\n");
     init_new = true;
-    key = readpass("set root passphrase: ", false);
-    if (key != readpass(" confirm passphrase: ", false)) {
+    key = readpass("set root passphrase: ");
+    if (key != readpass(" confirm passphrase: ")) {
       bail("passwords didn't match.");
     }
   } else {
     check_perms(store_path);
-    key = readpass("passphrase: ", true);
-    if (!decrypt(ciphertext, key, data)) {
+    dkeyiv = readpass_fromdaemon();
+    if (dkeyiv.empty()) {
+      key = readpass("passphrase: ");
+      derive_key(ciphertext, key, dkeyiv);
+    }
+    if (!decrypt(ciphertext, dkeyiv, data)) {
       fprintf(stderr, "Decrypt failed\n");
       return 1;
     }
@@ -291,8 +305,8 @@ int main(int argc, char **argv) {
   } else if (chpass_flag) {
     explicit_bzero(&key[0], key.size());
     fprintf(stderr, "Resetting password for %s.\n", store_path.c_str());
-    key = readpass("set root passphrase: ", false);
-    if (key != readpass(" confirm passphrase: ", false)) {
+    key = readpass("set root passphrase: ");
+    if (key != readpass(" confirm passphrase: ")) {
       bail("passwords didn't match.");
     }
     if (!init_new && !save_backup(store_path)) {
@@ -325,8 +339,8 @@ int main(int argc, char **argv) {
     }
   }
 
-  if (linger_flag || is_linger_enabled()) {
-    linger(key);
+  if (!dkeyiv.empty() && (linger_flag || is_linger_enabled())) {
+    linger(dkeyiv);
   }
   return 0;
 }
@@ -574,22 +588,15 @@ std::string readpass_fromdaemon() {
   if (write(sock, greeting, strlen(greeting)) < 1) {
     return "";
   }
-  char key[EVP_MAX_KEY_LENGTH] = {0};
-  if (read(sock, &key, sizeof(key)) < 1) {
+  std::string key(EVP_MAX_KEY_LENGTH + EVP_MAX_IV_LENGTH, '\0');
+  if (read(sock, &key.data()[0], key.size()) < 1) {
     return "";
   }
   return key;
 }
 
-std::string readpass(const std::string &prompt, bool try_daemon) {
+std::string readpass(const std::string &prompt) {
   char key[EVP_MAX_KEY_LENGTH] = {0};
-
-  if (try_daemon) {
-    auto k = readpass_fromdaemon();
-    if (!k.empty()) {
-      return k;
-    }
-  }
 
   if (readpassphrase(prompt.c_str(), key, sizeof(key), 0) == NULL) {
     bail("failed to read passphrase");
@@ -598,82 +605,95 @@ std::string readpass(const std::string &prompt, bool try_daemon) {
 }
 
 /**
- * Decrypt ciphertext with key and store it in plaintext.
+ * derive encryption key from salt + master key.
  */
-bool decrypt(const std::string &ciphertext, const std::string &key,
-             std::string &plaintext) {
-  unsigned char salt[SALT_LENGTH];
-  unsigned char dkeyiv[EVP_MAX_KEY_LENGTH + EVP_MAX_IV_LENGTH];
-  char tag[TAG_LENGTH];
-  int sz = 0;
-  const int hdrsz = MAGIC.size() + sizeof(salt) + sizeof(tag);
-  std::string s(ciphertext.size(), '\0');
+bool derive_key(const std::string &ciphertext, const std::string &key,
+                std::string &dkeyiv) {
 
-  EVP_CIPHER_CTX *ctx = NULL;
-  const EVP_CIPHER *cipher = EVP_aes_256_gcm();
+  dkeyiv.resize(EVP_MAX_KEY_LENGTH + EVP_MAX_IV_LENGTH);
 
-  if (ciphertext.size() < hdrsz) {
+  if (ciphertext.size() < HDRSZ) {
     fprintf(stderr, "error: corrupt password store.\n");
-    goto end;
-  }
-
-  ctx = EVP_CIPHER_CTX_new();
-  if (ctx == NULL) {
-    goto end;
+    return false;
   }
 
   if (ciphertext.substr(0, MAGIC.size()) != MAGIC) {
     perror("invalid magic string");
-    goto end;
+    return false;
+  }
+
+  std::string salt = ciphertext.substr(MAGIC.size(), SALT_LENGTH);
+  if (PKCS5_PBKDF2_HMAC(
+          key.c_str(), key.size(),
+          reinterpret_cast<unsigned char *>(salt.data()), SALT_LENGTH,
+          PBKDF2_ITER_COUNT, EVP_sha256(), dkeyiv.size(),
+          reinterpret_cast<unsigned char *>(dkeyiv.data())) != 1) {
+    perror("failed to derive key and iv");
+    return false;
+  }
+  return true;
+}
+
+/**
+ * Decrypt ciphertext with derived key and store it in plaintext.
+ */
+bool decrypt(const std::string &ciphertext, const std::string &dkeyiv,
+             std::string &plaintext) {
+  unsigned char salt[SALT_LENGTH];
+  char tag[TAG_LENGTH];
+  int sz = 0;
+  std::string s(ciphertext.size(), '\0');
+  EvpCipherContext ctx;
+  const EVP_CIPHER *cipher = EVP_aes_256_gcm();
+
+  if (ciphertext.size() < HDRSZ) {
+    fprintf(stderr, "error: corrupt password store.\n");
+    return false;
+  }
+
+  if (ciphertext.substr(0, MAGIC.size()) != MAGIC) {
+    perror("invalid magic string");
+    return false;
   }
   ciphertext.copy(reinterpret_cast<char *>(salt), sizeof(salt), MAGIC.size());
-
   ciphertext.copy(tag, sizeof(tag), MAGIC.size() + sizeof(salt));
 
-  if (PKCS5_PBKDF2_HMAC(key.c_str(), key.size(), salt, sizeof(salt),
-                        PBKDF2_ITER_COUNT, EVP_sha256(), sizeof(dkeyiv),
-                        dkeyiv) != 1) {
-    perror("failed to derive key and iv");
-    goto end;
-  }
-
-  if (EVP_CipherInit_ex(ctx, cipher, NULL, dkeyiv, dkeyiv + EVP_MAX_KEY_LENGTH,
+  if (EVP_CipherInit_ex(ctx.get(), cipher, NULL,
+                        reinterpret_cast<const unsigned char *>(dkeyiv.data()),
+                        reinterpret_cast<const unsigned char *>(dkeyiv.data()) +
+                            EVP_MAX_KEY_LENGTH,
                         0) != 1) {
     perror("failed to init cipher");
-    goto end;
+    return false;
   }
 
-  if (EVP_CIPHER_CTX_ctrl(ctx, EVP_CTRL_GCM_SET_TAG, TAG_LENGTH, tag) != 1) {
+  if (EVP_CIPHER_CTX_ctrl(ctx.get(), EVP_CTRL_GCM_SET_TAG, TAG_LENGTH, tag) !=
+      1) {
     perror("failed to set GCM tag");
-    goto end;
+    return false;
   }
 
   sz = s.size();
   if (EVP_CipherUpdate(
-          ctx, reinterpret_cast<unsigned char *>(s.data()), &sz,
-          reinterpret_cast<const unsigned char *>(&(ciphertext.data()[hdrsz])),
-          ciphertext.size() - hdrsz) != 1) {
+          ctx.get(), reinterpret_cast<unsigned char *>(s.data()), &sz,
+          reinterpret_cast<const unsigned char *>(&(ciphertext.data()[HDRSZ])),
+          ciphertext.size() - HDRSZ) != 1) {
     perror("CipherUpdate() failed");
-    goto end;
+    return false;
   }
 
   plaintext.append(s, 0, sz);
 
-  if (EVP_CipherFinal_ex(ctx, reinterpret_cast<unsigned char *>(s.data()),
+  if (EVP_CipherFinal_ex(ctx.get(), reinterpret_cast<unsigned char *>(s.data()),
                          &sz) != 1) {
     perror("CipherFinal() failed");
-    goto end;
+    return false;
   }
 
   plaintext.append(s, 0, sz);
   plaintext = sort_data(plaintext);
 
-  EVP_CIPHER_CTX_free(ctx);
   return true;
-
-end:
-  EVP_CIPHER_CTX_free(ctx);
-  return false;
 }
 
 /**
@@ -687,13 +707,8 @@ bool encrypt(const std::string &plaintext, const std::string &key,
   std::string s(plaintext.size() + 1000, '\0');
   std::string tmp;
 
-  EVP_CIPHER_CTX *ctx = NULL;
+  EvpCipherContext ctx;
   const EVP_CIPHER *cipher = EVP_aes_256_gcm();
-
-  ctx = EVP_CIPHER_CTX_new();
-  if (ctx == NULL) {
-    goto end;
-  }
 
   arc4random_buf(salt, sizeof(salt));
 
@@ -704,38 +719,39 @@ bool encrypt(const std::string &plaintext, const std::string &key,
                         PBKDF2_ITER_COUNT, EVP_sha256(), sizeof(dkeyiv),
                         dkeyiv) != 1) {
     perror("failed to derive key and iv");
-    goto end;
+    return false;
   }
 
-  if (EVP_CipherInit_ex(ctx, cipher, NULL, dkeyiv, dkeyiv + EVP_MAX_KEY_LENGTH,
-                        1) != 1) {
+  if (EVP_CipherInit_ex(ctx.get(), cipher, NULL, dkeyiv,
+                        dkeyiv + EVP_MAX_KEY_LENGTH, 1) != 1) {
     perror("failed to init cipher");
-    goto end;
+    return false;
   }
 
   sz = s.size();
   if (EVP_CipherUpdate(
-          ctx, reinterpret_cast<unsigned char *>(s.data()), &sz,
+          ctx.get(), reinterpret_cast<unsigned char *>(s.data()), &sz,
           reinterpret_cast<const unsigned char *>(plaintext.data()),
           plaintext.size()) != 1) {
     perror("CipherUpdate() failed");
-    goto end;
+    return false;
   }
 
   tmp.append(s, 0, sz);
 
-  if (EVP_CipherFinal_ex(ctx, reinterpret_cast<unsigned char *>(s.data()),
+  if (EVP_CipherFinal_ex(ctx.get(), reinterpret_cast<unsigned char *>(s.data()),
                          &sz) != 1) {
     perror("CipherFinal() failed");
-    goto end;
+    return false;
   }
 
   tmp.append(s, 0, sz);
 
   char tag[TAG_LENGTH];
-  if (EVP_CIPHER_CTX_ctrl(ctx, EVP_CTRL_GCM_GET_TAG, TAG_LENGTH, &tag) != 1) {
+  if (EVP_CIPHER_CTX_ctrl(ctx.get(), EVP_CTRL_GCM_GET_TAG, TAG_LENGTH, &tag) !=
+      1) {
     perror("GCM get tag failed");
-    goto end;
+    return false;
   }
 
   // ciphertext must contain MAGIC+SALT+TAG in header, but tag is
@@ -744,12 +760,7 @@ bool encrypt(const std::string &plaintext, const std::string &key,
   ciphertext.append(tag, TAG_LENGTH);
   ciphertext.append(tmp);
 
-  EVP_CIPHER_CTX_free(ctx);
   return true;
-
-end:
-  EVP_CIPHER_CTX_free(ctx);
-  return false;
 }
 
 std::string random_str(size_t sz) {
