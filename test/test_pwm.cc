@@ -54,13 +54,19 @@ UTEST(PWMTest, verifySplit) {
 }
 
 UTEST(PWMTest, verifyDecrypt) {
-  const std::string encdat(
-      "Salted__\x03\xd5\x9bN\x84\xa2z\x1d!\x1bn:\xde\xa6\x8b\xb5X"
-      "\xae\xf8\x0b]\x8f\x13\xd8,&{ D\xa7\xb2qvi>\xb2\xc1\xf7x\xdf"
-      ")\xeft4\x17,\xe4\x11n\x02G\x06T\xcb\xcc!\x93\xefo\xfb\xea");
+  unsigned char rawdata[] = {
+      0x53, 0x61, 0x6c, 0x74, 0x65, 0x64, 0x5f, 0x5f, 0xcf, 0x55, 0x7a, 0xd7,
+      0xe7, 0xb7, 0xf0, 0xc6, 0xd2, 0xa9, 0x61, 0x28, 0x25, 0x9a, 0x32, 0xe7,
+      0x05, 0xb1, 0x19, 0x92, 0xc5, 0xc6, 0x71, 0x71, 0xc1, 0xb1, 0xe6, 0x5e,
+      0x31, 0xe8, 0x4d, 0x88, 0x1b, 0xc1, 0xd4, 0x83, 0x0b, 0x1c, 0x78, 0xf7,
+      0x11, 0x61, 0x23, 0x30, 0x11, 0x5b, 0x4c, 0x4f, 0xeb, 0xea, 0xcf, 0x9c,
+      0xab, 0xa9, 0x65, 0x6d, 0x35, 0x1f, 0xc3, 0x45, 0x60};
+  const std::string encdat(reinterpret_cast<const char *>(rawdata),
+                           sizeof(rawdata));
   const std::string key("pwmtest");
-  std::string s;
-  ASSERT_TRUE(decrypt(encdat, key, s));
+  std::string s, dkeyiv;
+  ASSERT_TRUE(derive_key(encdat, key, dkeyiv));
+  ASSERT_TRUE(decrypt(encdat, dkeyiv, s));
   ASSERT_EQ(s, "a test crypt\n");
 }
 
@@ -75,10 +81,11 @@ UTEST(PWMTest, verifyDecryptCorrupt) {
 UTEST(PWMTest, verifyEncrypt) {
   const std::string decdat("a test crypt\n");
   const std::string key("pwmtest");
-  std::string s, r;
+  std::string s, r, dkeyiv;
 
   ASSERT_TRUE(encrypt(decdat, key, s));
-  ASSERT_TRUE(decrypt(s, key, r));
+  ASSERT_TRUE(derive_key(s, key, dkeyiv));
+  ASSERT_TRUE(decrypt(s, dkeyiv, r));
 
   ASSERT_EQ(r, decdat);
 }

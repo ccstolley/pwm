@@ -12,7 +12,6 @@
 #include <openssl/err.h>
 #include <openssl/evp.h>
 #include <poll.h>
-#include <portable.h>
 #include <readpassphrase.h>
 #include <sstream>
 #include <string>
