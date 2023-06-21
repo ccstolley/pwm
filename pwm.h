@@ -22,7 +22,9 @@
 #include <sys/un.h>
 #include <unistd.h>
 #include <vector>
+#ifndef __OpenBSD__
 #include "portable.h"
+#endif
 
 static bool save_backup(const std::string &filename);
 static std::string readpass(const std::string &prompt);
