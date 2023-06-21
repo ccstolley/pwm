@@ -16,8 +16,6 @@ const int PBKDF2_ITER_COUNT = 500000;
 }
 
 #ifndef TESTING
-#include <portable.h>
-
 static BIO *bio_err = nullptr;
 static std::string default_store_path() {
   const char *home = std::getenv("HOME");

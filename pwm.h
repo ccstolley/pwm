@@ -22,6 +22,7 @@
 #include <sys/un.h>
 #include <unistd.h>
 #include <vector>
+#include "portable.h"
 
 static bool save_backup(const std::string &filename);
 static std::string readpass(const std::string &prompt);
