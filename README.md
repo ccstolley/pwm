@@ -23,7 +23,7 @@ but can be overridden in the environment by setting `PWM_STORE`.
 
 Supported Platforms
 --
-OpenBSD only. I haven't gotten around to porting this to Linux etc, but PRs are welcome. See issue [#1](https://github.com/ccstolley/pwm/issues/1).
+OpenBSD and Linux.
 
 
 Examples
