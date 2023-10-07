@@ -176,7 +176,7 @@ int main(int argc, char **argv) {
   struct ent entry;
   bool chpass_flag = false;
   bool dump_flag = false;
-  bool linger_flag = false;
+  bool linger_flag = is_linger_enabled();
   bool remove_flag = false;
   bool update_flag = false;
   int ch;
@@ -339,7 +339,7 @@ int main(int argc, char **argv) {
     }
   }
 
-  if (!dkeyiv.empty() && (linger_flag || is_linger_enabled())) {
+  if (!dkeyiv.empty() && linger_flag) {
     linger(dkeyiv);
   }
   return 0;
