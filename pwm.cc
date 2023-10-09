@@ -43,13 +43,13 @@ static std::string default_store_path() {
   return std::getenv("PWM_LINGER");
 }
 
-static bool socket_is_live(std::string_view path) {
+static bool socket_is_live(const std::string &path) {
   int sock;
   struct sockaddr_un sunaddr;
 
   memset(&sunaddr, 0, sizeof(sunaddr));
   sunaddr.sun_family = AF_UNIX;
-  snprintf(sunaddr.sun_path, sizeof(sunaddr.sun_path), "%s", path.data());
+  snprintf(sunaddr.sun_path, sizeof(sunaddr.sun_path), "%s", path.c_str());
 
   if ((sock = socket(AF_UNIX, SOCK_STREAM, 0)) == -1) {
     return false;
