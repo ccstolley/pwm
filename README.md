@@ -9,6 +9,7 @@ usage: pwm [-d | -C | -u <name> [<meta>...] | -r name | <pattern>
 options:
   -C  change master password on existing store
   -d  dump all passwords to stderr
+  -l  linger for passwordless queries in future invocations
   -u  create/update password with <name> and optional <meta> data
   -r  remove password with <name>
 ```
@@ -18,6 +19,8 @@ passphrase.
 
 The default location of the store is `${HOME}/.pwmstore`
 but can be overridden in the environment by setting `PWM_STORE`.
+
+The linger feature can also be enabled by setting the environment variable `PWM_LINGER=1`.
 
 `pwm` generates random passwords for you when you add/update--it does not allow you to store existing passwords.
 
