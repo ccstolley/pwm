@@ -207,6 +207,10 @@ int main(int argc, char **argv) {
   argc -= optind;
   argv += optind;
 
+  if (entry.name.find(":") != entry.name.npos) {
+    bail("Names and metadata cannot contain ':' characters.");
+  }
+
   if (is_read_only() && (remove_flag || update_flag || chpass_flag)) {
     bail("Write operations are disabled.");
   }
@@ -277,6 +281,10 @@ int main(int argc, char **argv) {
         entry.meta += " ";
       }
       entry.meta += argv[i]; // typically username
+    }
+    // : is a field delim, so don't allow it in metadata
+    if (entry.meta.find(":") != entry.meta.npos) {
+      bail("Names and metadata cannot contain ':' characters.");
     }
     entry.updated_at = time(nullptr);
     entry.password = random_str(15);
