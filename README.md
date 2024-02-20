@@ -20,7 +20,13 @@ passphrase.
 The default location of the store is `${HOME}/.pwmstore`
 but can be overridden in the environment by setting `PWM_STORE`.
 
-The linger feature can also be enabled by setting the environment variable `PWM_LINGER=1`.
+The linger feature causes `pwm` to remain alive after a query is executed
+and this instance will hold the master key in memory for a limited
+time. Subsequent `pwm` invocations can ask the lingering `pwm` for the
+key without prompting the user for the master passphrase. Passwordless
+access to the password store is a potential security risk, so this
+feature is disabled by default. Linger can also be enabled by setting
+the environment variable `PWM_LINGER=1`.
 
 `pwm` generates random passwords for you when you add/update--it does not allow you to store existing passwords.
 
@@ -63,5 +69,13 @@ JhcrXKvUwsTtKA6
 ```
 The old password is printed to `stderr` in case it is needed for "old password" fields.
 
+Store a password, username and other info for `EvilBank`:
+```
+$ pwm -u evilbank bettywhite@hotmail.com PIN 2041
+passphrase:
+
+evilbank: bettywhite@hotmail.com PIN:2041
+sluDy7kHtAoHErh
+```
 You can shorten names (eg, `pwm gm` instead of `gmail`) if it
 matches exactly one entry.
