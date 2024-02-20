@@ -1,6 +1,8 @@
 #include "pwm.h"
 #include "utest.h"
+#include <array>
 #include <cstdio>
+#include <stdlib.h>
 
 UTEST_MAIN();
 
@@ -99,49 +101,49 @@ UTEST(PWMTest, verifyFind) {
   struct ent e;
 
   e.clear();
-  EXPECT_TRUE(find("dog", dat, e));
+  EXPECT_TRUE(search("dog", dat, e));
   EXPECT_EQ(e.name, "dog");
   EXPECT_EQ(e.meta, "one two");
   EXPECT_EQ(0, e.updated_at);
   EXPECT_EQ(e.password, "three");
 
   e.clear();
-  EXPECT_TRUE(find("cat", dat, e));
+  EXPECT_TRUE(search("cat", dat, e));
   EXPECT_EQ(e.name, "cat");
   EXPECT_EQ(e.meta, "four 5");
   EXPECT_EQ(0, e.updated_at);
   EXPECT_EQ(e.password, "6");
 
   e.clear();
-  EXPECT_TRUE(find("mouse", dat, e));
+  EXPECT_TRUE(search("mouse", dat, e));
   EXPECT_EQ(e.name, "mouse");
   EXPECT_EQ(e.meta, "");
   EXPECT_EQ(e.updated_at, 0);
   EXPECT_EQ(e.password, "100..z()");
 
   e.clear();
-  EXPECT_FALSE(find("d", dat, e));
-  EXPECT_FALSE(find("do", dat, e));
-  EXPECT_FALSE(find("lion", dat, e));
-  EXPECT_FALSE(find("lion", "lion", e));
-  EXPECT_FALSE(find("lion", ":", e));
+  EXPECT_FALSE(search("d", dat, e));
+  EXPECT_FALSE(search("do", dat, e));
+  EXPECT_FALSE(search("lion", dat, e));
+  EXPECT_FALSE(search("lion", "lion", e));
+  EXPECT_FALSE(search("lion", ":", e));
 
   e.clear();
-  EXPECT_TRUE(find("blond", dat, e));
+  EXPECT_TRUE(search("blond", dat, e));
   EXPECT_EQ(e.name, "blonde");
   EXPECT_EQ(e.meta, "");
   EXPECT_EQ(1632857699, e.updated_at);
   EXPECT_EQ(e.password, "passw");
 
   e.clear();
-  EXPECT_TRUE(find("tape", dat, e));
+  EXPECT_TRUE(search("tape", dat, e));
   EXPECT_EQ(e.name, "tape");
   EXPECT_EQ(e.meta, "mall time");
   EXPECT_EQ(1632857700, e.updated_at);
   EXPECT_EQ(e.password, "passwood");
 
   e.clear();
-  EXPECT_TRUE(find("blorg", dat, e));
+  EXPECT_TRUE(search("blorg", dat, e));
   EXPECT_EQ(e.name, "blorgish");
   EXPECT_EQ(e.meta, "");
   EXPECT_EQ(0, e.updated_at);
@@ -285,4 +287,108 @@ UTEST(PWMTest, verifySortData) {
         "dog2: doo zar\n";
 
   EXPECT_EQ(sort_data(dat), dat);
+}
+
+UTEST(PWMTest, verifyGetFlags) {
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wwritable-strings"
+#define TEST_STORE "/tmp/pwmtest"
+  putenv("PWM_READONLY=0");
+  putenv("PWM_LINGER=0");
+  putenv("PWM_STORE=" TEST_STORE);
+
+  // create an empty store file
+  ASSERT_TRUE(dump_to_file("", TEST_STORE));
+
+  std::vector<char *> argv{"pwm", "foo"};
+  auto f = get_flags(std::size(argv), argv.data());
+  EXPECT_TRUE(f.is_search());
+  EXPECT_FALSE(f.linger);
+  EXPECT_FALSE(f.read_only);
+  EXPECT_EQ(f.name, "foo");
+  EXPECT_EQ(f.meta, "");
+
+  argv = {"pwm", "-l", "foo"};
+  f = get_flags(std::size(argv), argv.data());
+  EXPECT_TRUE(f.is_search());
+  EXPECT_TRUE(f.linger);
+  EXPECT_FALSE(f.read_only);
+  EXPECT_EQ(f.name, "foo");
+  EXPECT_EQ(f.meta, "");
+
+  argv = {"pwm", "bar", "foo", "-l"};
+  f = get_flags(std::size(argv), argv.data());
+  EXPECT_TRUE(f.is_search());
+  EXPECT_TRUE(f.linger);
+  EXPECT_FALSE(f.read_only);
+  EXPECT_EQ(f.name, "bar");
+  EXPECT_EQ(f.meta, "foo");
+
+  argv = {"pwm", "foo", "bar"};
+  f = get_flags(std::size(argv), argv.data());
+  EXPECT_TRUE(f.is_search());
+  EXPECT_FALSE(f.linger);
+  EXPECT_FALSE(f.read_only);
+  EXPECT_EQ(f.name, "foo");
+  EXPECT_EQ(f.meta, "bar");
+
+  argv = {"pwm", "-u", "foo"};
+  f = get_flags(std::size(argv), argv.data());
+  EXPECT_FALSE(f.is_search());
+  EXPECT_TRUE(f.update);
+  EXPECT_TRUE(f.uses_writeops());
+  EXPECT_FALSE(f.linger);
+  EXPECT_FALSE(f.read_only);
+  EXPECT_EQ(f.name, "foo");
+  EXPECT_EQ(f.meta, "");
+
+  argv = {"pwm", "-u", "foo", "bar", "baz"};
+  f = get_flags(std::size(argv), argv.data());
+  EXPECT_FALSE(f.is_search());
+  EXPECT_TRUE(f.update);
+  EXPECT_TRUE(f.uses_writeops());
+  EXPECT_FALSE(f.linger);
+  EXPECT_FALSE(f.read_only);
+  EXPECT_EQ(f.name, "foo");
+  EXPECT_EQ(f.meta, "bar baz");
+
+  argv = {"pwm", "-r", "foo"};
+  f = get_flags(std::size(argv), argv.data());
+  EXPECT_FALSE(f.is_search());
+  EXPECT_FALSE(f.update);
+  EXPECT_TRUE(f.remove);
+  EXPECT_TRUE(f.uses_writeops());
+  EXPECT_FALSE(f.linger);
+  EXPECT_FALSE(f.read_only);
+  EXPECT_EQ(f.name, "foo");
+  EXPECT_EQ(f.meta, "");
+
+  argv = {"pwm", "-d", "foo"};
+  f = get_flags(std::size(argv), argv.data());
+  EXPECT_FALSE(f.is_search());
+  EXPECT_FALSE(f.update);
+  EXPECT_FALSE(f.uses_writeops());
+  EXPECT_FALSE(f.linger);
+  EXPECT_FALSE(f.read_only);
+  EXPECT_TRUE(f.dump);
+
+  argv = {"pwm", "-C", "foo"};
+  f = get_flags(std::size(argv), argv.data());
+  EXPECT_FALSE(f.is_search());
+  EXPECT_FALSE(f.update);
+  EXPECT_FALSE(f.dump);
+  EXPECT_FALSE(f.remove);
+  EXPECT_TRUE(f.chpass);
+  EXPECT_TRUE(f.uses_writeops());
+  EXPECT_FALSE(f.linger);
+  EXPECT_FALSE(f.read_only);
+
+  argv = {"pwm", "-Cl", "foo"};
+  f = get_flags(std::size(argv), argv.data());
+  EXPECT_FALSE(f.is_search());
+  EXPECT_FALSE(f.update);
+  EXPECT_TRUE(f.linger);
+  EXPECT_FALSE(f.read_only);
+
+#pragma clang diagnostic pop
 }

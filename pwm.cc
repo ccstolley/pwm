@@ -15,7 +15,6 @@ const int PBKDF2_ITER_COUNT = 500000;
   exit(1);
 }
 
-#ifndef TESTING
 static BIO *bio_err = nullptr;
 static std::string default_store_path() {
   const char *home = std::getenv("HOME");
@@ -37,10 +36,24 @@ static std::string default_store_path() {
        "  -r  remove password with <name>\n");
 }
 
-[[nodiscard]] static bool is_read_only() { return std::getenv("PWM_READONLY"); }
+[[nodiscard]] static bool is_read_only() {
+  auto v = std::getenv("PWM_READONLY");
+  return v != nullptr && strncmp(v, "0", 1) != 0;
+}
 
 [[nodiscard]] static bool is_linger_enabled() {
-  return std::getenv("PWM_LINGER");
+  auto v = std::getenv("PWM_LINGER");
+  return v != nullptr && strncmp(v, "0", 1) != 0;
+}
+
+[[nodiscard]] static std::string get_store_path() {
+  std::string store_path;
+  if (const char *env_store = std::getenv("PWM_STORE")) {
+    store_path = env_store;
+  } else {
+    store_path = default_store_path();
+  }
+  return store_path;
 }
 
 static bool socket_is_live(const std::string &path) {
@@ -160,6 +173,11 @@ static void linger(const std::string_view key) {
       continue;
     }
     buf[sz] = '\0';
+    if (strcmp(buf, "shutdown\n") == 0) {
+      close(csock);
+      break;
+    }
+
     if (strcmp(buf, "hello\n") != 0) {
       close(csock);
       continue;
@@ -172,33 +190,31 @@ static void linger(const std::string_view key) {
   close(sock);
 }
 
-int main(int argc, char **argv) {
-  struct ent entry;
-  bool chpass_flag = false;
-  bool dump_flag = false;
-  bool linger_flag = is_linger_enabled();
-  bool remove_flag = false;
-  bool update_flag = false;
+struct cmd_flags get_flags(int argc, char *const *argv) {
+  struct cmd_flags f;
   int ch;
 
-  while ((ch = getopt(argc, argv, "Cdlu:r:")) != -1) {
+  f.linger = is_linger_enabled();
+  f.read_only = is_read_only();
+  f.store_path = get_store_path();
+  optind = opterr = 1; // for tests
+
+  while ((ch = getopt(argc, argv, "Cdlur")) != -1) {
     switch (ch) {
     case 'r':
-      remove_flag = true;
-      entry.name = optarg;
+      f.remove = true;
       break;
     case 'u':
-      update_flag = true;
-      entry.name = optarg;
+      f.update = true;
       break;
     case 'l':
-      linger_flag = true;
+      f.linger = true;
       break;
     case 'd':
-      dump_flag = true;
+      f.dump = true;
       break;
     case 'C':
-      chpass_flag = true;
+      f.chpass = true;
       break;
     default:
       usage();
@@ -207,25 +223,215 @@ int main(int argc, char **argv) {
   argc -= optind;
   argv += optind;
 
-  if (entry.name.find(":") != entry.name.npos) {
-    bail("Names and metadata cannot contain ':' characters.");
+  if (argc > 0) {
+    f.name = argv[0];
+  }
+  for (int i = 1; i < argc; i++) {
+    if (i > 1) {
+      f.meta += " ";
+    }
+    f.meta += argv[i]; // typically username
   }
 
-  if (is_read_only() && (remove_flag || update_flag || chpass_flag)) {
+  // : is a field delim, so don't allow it in metadata
+  if (!f.validate_meta()) {
+    bail("Metadata cannot contain ':' characters.");
+  }
+  if (!f.validate_name()) {
+    bail("Name cannot contain ':' characters.");
+  }
+
+  if (!f.validate_read_only()) {
     bail("Write operations are disabled.");
   }
 
-  if (update_flag + dump_flag + remove_flag + chpass_flag > 1) {
+  if (!f.validate_store_path()) {
+    bail("PWM_STORE is undefined.");
+  }
+  if (!f.update) {
+    check_perms(f.store_path);
+  }
+
+  if (!f.validate_options()) {
     fprintf(stderr, "pwm: command options can't be combined\n");
     usage();
   }
 
-  if (!chpass_flag && !remove_flag && !dump_flag && !update_flag && argc == 0) {
+  if (!f.validate_search()) {
     fprintf(stderr, "pwm: must specify a search string.\n");
     usage();
   }
+  return f;
+}
 
-  if (update_flag || remove_flag || chpass_flag || linger_flag) {
+int handle_search(const struct cmd_flags &f, struct ent &entry) {
+  auto ciphertext = read_file(f.store_path);
+  std::string data, dkeyiv, key;
+
+  if (ciphertext.empty()) {
+    bail("missing or corrupt store: %s", f.store_path.c_str());
+  }
+  dkeyiv = readpass_fromdaemon();
+  if (dkeyiv.empty()) {
+    key = readpass("passphrase: ");
+    derive_key(ciphertext, key, dkeyiv);
+    explicit_bzero(&key[0], key.size());
+  }
+  if (!decrypt(ciphertext, dkeyiv, data)) {
+    fprintf(stderr, "Decrypt failed\n");
+    return 1;
+  }
+  if (search(f.name, data, entry)) {
+    if (entry.updated_at) {
+      char buf[64];
+      struct tm *t = localtime(&entry.updated_at);
+      strftime(buf, sizeof(buf), "%F %T", t);
+      fprintf(stderr, "\nupdated: %s\n", buf);
+    }
+    fprintf(stderr, "\n%s: %s\n", entry.name.c_str(), entry.meta.c_str());
+    printf("%s\n", entry.password.c_str());
+  } else {
+    fprintf(stderr, "Not found.\n");
+  }
+  if (!dkeyiv.empty() && f.linger) {
+    linger(dkeyiv);
+  }
+  return 0;
+}
+
+int handle_dump(const struct cmd_flags &f) {
+  auto ciphertext = read_file(f.store_path);
+  std::string data, dkeyiv, key;
+
+  if (ciphertext.empty()) {
+    bail("missing or corrupt store: %s", f.store_path.c_str());
+  }
+  dkeyiv = readpass_fromdaemon();
+  if (dkeyiv.empty()) {
+    key = readpass("passphrase: ");
+    derive_key(ciphertext, key, dkeyiv);
+    explicit_bzero(&key[0], key.size());
+  }
+  if (!decrypt(ciphertext, dkeyiv, data)) {
+    fprintf(stderr, "Decrypt failed\n");
+    return 1;
+  }
+  if (!dump(data)) {
+    return 1;
+  }
+  if (f.linger && !dkeyiv.empty()) {
+    linger(dkeyiv);
+  }
+  return 0;
+}
+
+int handle_chpass(const struct cmd_flags &f) {
+  auto ciphertext = read_file(f.store_path);
+  std::string data, dkeyiv, key;
+
+  if (ciphertext.empty()) {
+    bail("missing or corrupt store: %s", f.store_path.c_str());
+  }
+  dkeyiv = readpass_fromdaemon();
+  if (dkeyiv.empty()) {
+    key = readpass("passphrase: ");
+    derive_key(ciphertext, key, dkeyiv);
+    explicit_bzero(&key[0], key.size());
+  }
+  if (!decrypt(ciphertext, dkeyiv, data)) {
+    fprintf(stderr, "Decrypt failed\n");
+    return 1;
+  }
+  fprintf(stderr, "Resetting password for %s.\n", f.store_path.c_str());
+  key = readpass("set root passphrase: ");
+  if (key != readpass(" confirm passphrase: ")) {
+    bail("passwords didn't match.");
+  }
+  if (!save_backup(f.store_path)) {
+    bail("failed to save backup. aborting.");
+  }
+  std::string newdata;
+  if (!encrypt(data, key, newdata)) {
+    bail("re-encrypt failed! backup saved.");
+  }
+  explicit_bzero(&data[0], data.size());
+  if (!dump_to_file(newdata, f.store_path)) {
+    bail("failed to write updated store. backup saved.");
+  }
+  maybe_shutdown_daemon();
+  fprintf(stderr,
+          "\nMaster password updated.\n\nDelete the backup store\n"
+          "  rm %s.bak\nif your old password was compromised.\n",
+          f.store_path.c_str());
+
+  if (f.linger && derive_key(newdata, key, dkeyiv)) {
+    explicit_bzero(&key[0], key.size());
+    linger(dkeyiv);
+  }
+  return 0;
+}
+
+int handle_update(const struct cmd_flags &f, struct ent &entry) {
+  auto ciphertext = read_file(f.store_path);
+  std::string data, dkeyiv, key;
+  bool init_new = false;
+
+  if (ciphertext.empty()) {
+    fprintf(stderr, "Initializing new password store.\n");
+    init_new = true;
+    key = readpass("set root passphrase: ");
+    if (key != readpass(" confirm passphrase: ")) {
+      bail("passwords didn't match.");
+    }
+  } else {
+    // can't use daemon because we need key to derive new dkeyiv
+    key = readpass("passphrase: ");
+    derive_key(ciphertext, key, dkeyiv);
+    if (!decrypt(ciphertext, dkeyiv, data)) {
+      fprintf(stderr, "Decrypt failed\n");
+      return 1;
+    }
+  }
+  entry.updated_at = time(nullptr);
+  entry.password = random_str(15);
+  std::string newdata;
+  if (!update(data, entry, newdata, f.remove)) {
+    bail("%s failed.", f.remove ? "remove" : "update");
+  }
+  data.clear();
+
+  if (!init_new && !save_backup(f.store_path)) {
+    bail("failed to save backup. aborting.");
+  }
+  if (!encrypt(newdata, key, data)) {
+    bail("re-encrypt failed! backup saved.");
+  }
+  explicit_bzero(&newdata[0], newdata.size());
+  if (!dump_to_file(data, f.store_path)) {
+    bail("failed to write updated store.");
+  }
+  maybe_shutdown_daemon();
+  if (f.update) {
+    fprintf(stderr, "\n%s: %s\n", entry.name.c_str(), entry.meta.c_str());
+    printf("%s\n", entry.password.c_str());
+  } else {
+    fprintf(stderr, "\n%s: removed\n", entry.name.c_str());
+  }
+  if (f.linger && derive_key(data, key, dkeyiv)) {
+    explicit_bzero(&key[0], key.size());
+    linger(dkeyiv);
+  }
+  return 0;
+}
+
+#ifndef TESTING
+int main(int argc, char **argv) {
+  struct ent entry;
+  auto f = get_flags(argc, argv);
+  entry.name = f.name;
+  entry.meta = f.meta;
+
+  if (f.uses_writeops() || f.linger) {
     if (pledge("proc unix inet stdio tty fattr cpath rpath wpath", NULL) != 0) {
       bail("pledge(2) failed at %d.", __LINE__);
     }
@@ -235,121 +441,22 @@ int main(int argc, char **argv) {
     }
   }
 
-  std::string store_path;
-  if (const char *env_store = std::getenv("PWM_STORE")) {
-    store_path = env_store;
-  } else {
-    store_path = default_store_path();
-  }
-
   bio_err = BIO_new_fp(stderr, BIO_NOCLOSE);
   if (bio_err == NULL) {
     bail("failed to initialise bio_err");
   }
 
-  auto ciphertext = read_file(store_path);
-  std::string data, dkeyiv, key;
-  bool init_new = false;
-
-  if (ciphertext.empty()) {
-    if (!update_flag) {
-      bail("missing or corrupt store: %s", store_path.c_str());
-    }
-    fprintf(stderr, "Initializing new password store.\n");
-    init_new = true;
-    key = readpass("set root passphrase: ");
-    if (key != readpass(" confirm passphrase: ")) {
-      bail("passwords didn't match.");
-    }
-  } else {
-    check_perms(store_path);
-    dkeyiv = readpass_fromdaemon();
-    if (dkeyiv.empty()) {
-      key = readpass("passphrase: ");
-      derive_key(ciphertext, key, dkeyiv);
-    }
-    if (!decrypt(ciphertext, dkeyiv, data)) {
-      fprintf(stderr, "Decrypt failed\n");
-      return 1;
-    }
+  if (f.is_search()) {
+    return handle_search(f, entry);
+  } else if (f.update || f.remove) {
+    return handle_update(f, entry);
+  } else if (f.dump) {
+    return handle_dump(f);
+  } else if (f.chpass) {
+    return handle_chpass(f);
   }
-  if (dump_flag) {
-    dump(data);
-  } else if (update_flag || remove_flag) {
-    for (int i = 0; i < argc; i++) {
-      if (i > 0) {
-        entry.meta += " ";
-      }
-      entry.meta += argv[i]; // typically username
-    }
-    // : is a field delim, so don't allow it in metadata
-    if (entry.meta.find(":") != entry.meta.npos) {
-      bail("Names and metadata cannot contain ':' characters.");
-    }
-    entry.updated_at = time(nullptr);
-    entry.password = random_str(15);
-    std::string newdata;
-    if (!update(data, entry, newdata, remove_flag)) {
-      bail("%s failed.", remove_flag ? "remove" : "update");
-    }
-    data.clear();
-
-    if (!init_new && !save_backup(store_path)) {
-      bail("failed to save backup. aborting.");
-    }
-    if (!encrypt(newdata, key, data)) {
-      bail("re-encrypt failed! backup saved.");
-    }
-    explicit_bzero(&newdata[0], newdata.size());
-    if (!dump_to_file(data, store_path)) {
-      bail("failed to write updated store.");
-    }
-    if (update_flag) {
-      fprintf(stderr, "\n%s: %s\n", entry.name.c_str(), entry.meta.c_str());
-      printf("%s\n", entry.password.c_str());
-    } else {
-      fprintf(stderr, "\n%s: removed\n", entry.name.c_str());
-    }
-  } else if (chpass_flag) {
-    explicit_bzero(&key[0], key.size());
-    fprintf(stderr, "Resetting password for %s.\n", store_path.c_str());
-    key = readpass("set root passphrase: ");
-    if (key != readpass(" confirm passphrase: ")) {
-      bail("passwords didn't match.");
-    }
-    if (!init_new && !save_backup(store_path)) {
-      bail("failed to save backup. aborting.");
-    }
-    std::string newdata;
-    if (!encrypt(data, key, newdata)) {
-      bail("re-encrypt failed! backup saved.");
-    }
-    explicit_bzero(&data[0], data.size());
-    if (!dump_to_file(newdata, store_path)) {
-      bail("failed to write updated store. backup saved.");
-    }
-    fprintf(stderr,
-            "\nMaster password updated.\n\nDelete the backup store\n"
-            "  rm %s.bak\nif your old password was compromised.\n",
-            store_path.c_str());
-  } else {
-    if (find(argv[0], data, entry)) {
-      if (entry.updated_at) {
-        char buf[64];
-        struct tm *t = localtime(&entry.updated_at);
-        strftime(buf, sizeof(buf), "%F %T", t);
-        fprintf(stderr, "\nupdated: %s\n", buf);
-      }
-      fprintf(stderr, "\n%s: %s\n", entry.name.c_str(), entry.meta.c_str());
-      printf("%s\n", entry.password.c_str());
-    } else {
-      fprintf(stderr, "Not found.\n");
-    }
-  }
-
-  if (!dkeyiv.empty() && linger_flag) {
-    linger(dkeyiv);
-  }
+  // should never happen
+  usage();
   return 0;
 }
 #endif // TESTING
@@ -475,8 +582,8 @@ bool dump_to_file(const std::string &data, const std::string &filename) {
   return out.good();
 }
 
-bool find(const std::string &needle, const std::string &haystack,
-          struct ent &entry) {
+bool search(const std::string &needle, const std::string &haystack,
+            struct ent &entry) {
   std::stringstream linestream{haystack};
   int i = 0;
   bool found = false;
@@ -577,6 +684,30 @@ std::string trim(const std::string &s) {
           .base());
 }
 
+bool maybe_shutdown_daemon() {
+  struct sockaddr_un sunaddr;
+  memset(&sunaddr, 0, sizeof(sunaddr));
+  sunaddr.sun_family = AF_UNIX;
+  snprintf(sunaddr.sun_path, sizeof(sunaddr.sun_path), "/tmp/pwm.%s",
+           std::getenv("USER"));
+  int sock;
+
+  if ((sock = socket(AF_UNIX, SOCK_STREAM, 0)) == -1) {
+    return false;
+  }
+
+  if (connect(sock, (struct sockaddr *)&sunaddr, sizeof(sunaddr)) == -1) {
+    return false;
+  }
+  const char *cmd = "shutdown\n";
+  if (write(sock, cmd, strlen(cmd)) < 1) {
+    close(sock);
+    return false;
+  }
+  close(sock);
+  return true;
+}
+
 std::string readpass_fromdaemon() {
   struct sockaddr_un sunaddr;
   memset(&sunaddr, 0, sizeof(sunaddr));
@@ -594,12 +725,15 @@ std::string readpass_fromdaemon() {
   }
   const char *greeting = "hello\n";
   if (write(sock, greeting, strlen(greeting)) < 1) {
+    close(sock);
     return "";
   }
   std::string key(EVP_MAX_KEY_LENGTH + EVP_MAX_IV_LENGTH, '\0');
   if (read(sock, &key.data()[0], key.size()) < 1) {
+    close(sock);
     return "";
   }
+  close(sock);
   return key;
 }
 

@@ -29,6 +29,7 @@
 static bool save_backup(const std::string &filename);
 static std::string readpass(const std::string &prompt);
 static std::string readpass_fromdaemon();
+static bool maybe_shutdown_daemon();
 
 bool dump_to_file(const std::string &data, const std::string &filename);
 bool derive_key(const std::string &ciphertext, const std::string &key,
@@ -41,8 +42,8 @@ std::string trim(const std::string &s);
 std::string read_file(const std::string &filename);
 std::vector<std::string> split(const std::string &s,
                                const std::string &delimiter);
-bool find(const std::string &needle, const std::string &haystack,
-          struct ent &entry);
+bool search(const std::string &needle, const std::string &haystack,
+            struct ent &entry);
 bool dump(const std::string &data);
 bool update(const std::string &data, const struct ent &newent,
             std::string &revised, bool remove);
@@ -51,6 +52,11 @@ std::string dump_entry(const struct ent &entry);
 std::string random_str(size_t sz);
 std::string sort_data(const std::string &data);
 void check_perms(const std::string &path);
+struct cmd_flags get_flags(int argc, char *const *argv);
+int handle_search(const struct cmd_flags &f, struct ent &entry);
+int handle_dump(const struct cmd_flags &f);
+int handle_chpass(const struct cmd_flags &f);
+int handle_update(const struct cmd_flags &f, struct ent &entry);
 
 struct ent {
   std::string name;
@@ -79,4 +85,42 @@ struct EvpCipherContext {
 
 private:
   EVP_CIPHER_CTX *ctx_;
+};
+
+struct cmd_flags {
+  std::string name;
+  std::string meta;
+  std::string store_path;
+  bool chpass = false;
+  bool dump = false;
+  bool linger = false;
+  bool remove = false;
+  bool read_only = false;
+  bool update = false;
+
+  bool validate_name() { return name.find(":") == name.npos; }
+  bool validate_meta() { return meta.find(":") == meta.npos; }
+  bool validate_read_only() { return !read_only || !uses_writeops(); }
+  bool validate_options() { return (update + dump + remove + chpass) <= 1; }
+  bool validate_search() { return !name.empty() || dump || chpass; }
+  bool validate_store_path() { return !store_path.empty(); }
+
+  bool uses_writeops() { return remove || update || chpass; }
+  bool is_search() { return !uses_writeops() && !dump; }
+
+  std::string to_string() {
+    std::string s;
+    s += "name: " + name + "\n";
+    s += "meta: " + meta + "\n";
+    s += "store_path: " + store_path + "\n";
+    s += "chpass: " + std::to_string(chpass) + "\n";
+    s += "dump: " + std::to_string(dump) + "\n";
+    s += "linger: " + std::to_string(linger) + "\n";
+    s += "remove: " + std::to_string(remove) + "\n";
+    s += "read_only: " + std::to_string(read_only) + "\n";
+    s += "update: " + std::to_string(update) + "\n";
+    s += "is_search: " + std::to_string(is_search()) + "\n";
+    s += "uses_writeops: " + std::to_string(uses_writeops()) + "\n";
+    return s;
+  }
 };
