@@ -15,7 +15,6 @@ const int PBKDF2_ITER_COUNT = 500000;
   exit(1);
 }
 
-static BIO *bio_err = nullptr;
 static std::string default_store_path() {
   const char *home = std::getenv("HOME");
   if (home == nullptr) {
@@ -198,8 +197,9 @@ struct cmd_flags get_flags(int argc, char *const *argv) {
   f.read_only = is_read_only();
   f.store_path = get_store_path();
   optind = opterr = 1; // for tests
+  std::vector<std::string> args;
 
-  while ((ch = getopt(argc, argv, "Cdlur")) != -1) {
+  while ((ch = getopt(argc, argv, "-Cdlur")) != -1) {
     switch (ch) {
     case 'r':
       f.remove = true;
@@ -216,6 +216,10 @@ struct cmd_flags get_flags(int argc, char *const *argv) {
     case 'C':
       f.chpass = true;
       break;
+    case '\1':
+      // non-option arg
+      args.push_back(optarg);
+      break;
     default:
       usage();
     }
@@ -223,14 +227,14 @@ struct cmd_flags get_flags(int argc, char *const *argv) {
   argc -= optind;
   argv += optind;
 
-  if (argc > 0) {
-    f.name = argv[0];
+  if (!args.empty()) {
+    f.name = args.front();
   }
-  for (int i = 1; i < argc; i++) {
-    if (i > 1) {
+  for (unsigned int i = 1; i < std::size(args); i++) {
+    if (!f.meta.empty()) {
       f.meta += " ";
     }
-    f.meta += argv[i]; // typically username
+    f.meta += args[i];
   }
 
   // : is a field delim, so don't allow it in metadata
@@ -439,11 +443,6 @@ int main(int argc, char **argv) {
     if (pledge("proc unix inet stdio tty rpath fattr", NULL) != 0) {
       bail("pledge(2) failed at %d.", __LINE__);
     }
-  }
-
-  bio_err = BIO_new_fp(stderr, BIO_NOCLOSE);
-  if (bio_err == NULL) {
-    bail("failed to initialise bio_err");
   }
 
   if (f.is_search()) {

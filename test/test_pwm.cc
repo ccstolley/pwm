@@ -305,32 +305,41 @@ UTEST(PWMTest, verifyGetFlags) {
   EXPECT_TRUE(f.is_search());
   EXPECT_FALSE(f.linger);
   EXPECT_FALSE(f.read_only);
-  EXPECT_EQ(f.name, "foo");
-  EXPECT_EQ(f.meta, "");
+  EXPECT_EQ("foo", f.name);
+  EXPECT_EQ("", f.meta);
 
   argv = {"pwm", "-l", "foo"};
   f = get_flags(std::size(argv), argv.data());
   EXPECT_TRUE(f.is_search());
   EXPECT_TRUE(f.linger);
   EXPECT_FALSE(f.read_only);
-  EXPECT_EQ(f.name, "foo");
-  EXPECT_EQ(f.meta, "");
+  EXPECT_EQ("foo", f.name);
+  EXPECT_EQ("", f.meta);
 
   argv = {"pwm", "bar", "foo", "-l"};
   f = get_flags(std::size(argv), argv.data());
   EXPECT_TRUE(f.is_search());
   EXPECT_TRUE(f.linger);
   EXPECT_FALSE(f.read_only);
-  EXPECT_EQ(f.name, "bar");
-  EXPECT_EQ(f.meta, "foo");
+  EXPECT_EQ("bar", f.name);
+  EXPECT_EQ("foo", f.meta);
+
+  argv = {"pwm", "-l", "bar", "foo", "-u"};
+  f = get_flags(std::size(argv), argv.data());
+  EXPECT_FALSE(f.is_search());
+  EXPECT_TRUE(f.update);
+  EXPECT_TRUE(f.linger);
+  EXPECT_FALSE(f.read_only);
+  EXPECT_EQ("bar", f.name);
+  EXPECT_EQ("foo", f.meta);
 
   argv = {"pwm", "foo", "bar"};
   f = get_flags(std::size(argv), argv.data());
   EXPECT_TRUE(f.is_search());
   EXPECT_FALSE(f.linger);
   EXPECT_FALSE(f.read_only);
-  EXPECT_EQ(f.name, "foo");
-  EXPECT_EQ(f.meta, "bar");
+  EXPECT_EQ("foo", f.name);
+  EXPECT_EQ("bar", f.meta);
 
   argv = {"pwm", "-u", "foo"};
   f = get_flags(std::size(argv), argv.data());
@@ -339,8 +348,8 @@ UTEST(PWMTest, verifyGetFlags) {
   EXPECT_TRUE(f.uses_writeops());
   EXPECT_FALSE(f.linger);
   EXPECT_FALSE(f.read_only);
-  EXPECT_EQ(f.name, "foo");
-  EXPECT_EQ(f.meta, "");
+  EXPECT_EQ("foo", f.name);
+  EXPECT_EQ("", f.meta);
 
   argv = {"pwm", "-u", "foo", "bar", "baz"};
   f = get_flags(std::size(argv), argv.data());
@@ -349,8 +358,8 @@ UTEST(PWMTest, verifyGetFlags) {
   EXPECT_TRUE(f.uses_writeops());
   EXPECT_FALSE(f.linger);
   EXPECT_FALSE(f.read_only);
-  EXPECT_EQ(f.name, "foo");
-  EXPECT_EQ(f.meta, "bar baz");
+  EXPECT_EQ("foo", f.name);
+  EXPECT_EQ("bar baz", f.meta);
 
   argv = {"pwm", "-r", "foo"};
   f = get_flags(std::size(argv), argv.data());
@@ -360,8 +369,8 @@ UTEST(PWMTest, verifyGetFlags) {
   EXPECT_TRUE(f.uses_writeops());
   EXPECT_FALSE(f.linger);
   EXPECT_FALSE(f.read_only);
-  EXPECT_EQ(f.name, "foo");
-  EXPECT_EQ(f.meta, "");
+  EXPECT_EQ("foo", f.name);
+  EXPECT_EQ("", f.meta);
 
   argv = {"pwm", "-d", "foo"};
   f = get_flags(std::size(argv), argv.data());
