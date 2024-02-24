@@ -224,8 +224,6 @@ struct cmd_flags get_flags(int argc, char *const *argv) {
       usage();
     }
   }
-  argc -= optind;
-  argv += optind;
 
   if (!args.empty()) {
     f.name = args.front();
