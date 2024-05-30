@@ -582,12 +582,11 @@ bool dump_to_file(const std::string &data, const std::string &filename) {
 bool search(const std::string &needle, const std::string &haystack,
             struct ent &entry) {
   std::stringstream linestream{haystack};
-  int i = 0;
   bool found = false;
   bool exact = false;
   struct ent match;
 
-  for (std::string line; std::getline(linestream, line); i++) {
+  for (std::string line; std::getline(linestream, line);) {
     if (needle != line.substr(0, needle.size()) || !parse_entry(line, match)) {
       continue;
     }
