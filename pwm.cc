@@ -780,7 +780,6 @@ bool decrypt(const std::string &ciphertext, const std::string &dkeyiv,
   unsigned char salt[SALT_LENGTH];
   char tag[TAG_LENGTH];
   int sz = 0;
-  std::string s(ciphertext.size(), '\0');
   EvpCipherContext ctx;
   const EVP_CIPHER *cipher = EVP_aes_256_gcm();
 
@@ -811,7 +810,7 @@ bool decrypt(const std::string &ciphertext, const std::string &dkeyiv,
     return false;
   }
 
-  sz = s.size();
+  std::string s(ciphertext.size() + EVP_CIPHER_get_block_size(cipher), '\0');
   if (EVP_CipherUpdate(
           ctx.get(), reinterpret_cast<unsigned char *>(s.data()), &sz,
           reinterpret_cast<const unsigned char *>(&(ciphertext.data()[HDRSZ])),
@@ -842,9 +841,7 @@ bool encrypt(const std::string &plaintext, const std::string &key,
   unsigned char dkeyiv[EVP_MAX_KEY_LENGTH + EVP_MAX_IV_LENGTH];
   unsigned char salt[SALT_LENGTH];
   int sz = 0;
-  std::string s(plaintext.size() + 1000, '\0');
   std::string tmp;
-
   EvpCipherContext ctx;
   const EVP_CIPHER *cipher = EVP_aes_256_gcm();
 
@@ -866,7 +863,7 @@ bool encrypt(const std::string &plaintext, const std::string &key,
     return false;
   }
 
-  sz = s.size();
+  std::string s(plaintext.size() + EVP_CIPHER_get_block_size(cipher), '\0');
   if (EVP_CipherUpdate(
           ctx.get(), reinterpret_cast<unsigned char *>(s.data()), &sz,
           reinterpret_cast<const unsigned char *>(plaintext.data()),
