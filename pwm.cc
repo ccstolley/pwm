@@ -266,7 +266,7 @@ struct cmd_flags get_flags(int argc, char *const *argv) {
   return f;
 }
 
-int handle_search(const struct cmd_flags &f, struct ent &entry) {
+bool handle_search(const struct cmd_flags &f, struct ent &entry) {
   auto ciphertext = read_file(f.store_path);
   std::string data, dkeyiv, key;
 
@@ -275,13 +275,13 @@ int handle_search(const struct cmd_flags &f, struct ent &entry) {
   }
   dkeyiv = readpass_fromdaemon();
   if (dkeyiv.empty()) {
-    key = readpass("passphrase: ");
+    key = f.key.empty() ? readpass("passphrase: ") : f.key;
     derive_key(ciphertext, key, dkeyiv);
     explicit_bzero(&key[0], key.size());
   }
   if (!decrypt(ciphertext, dkeyiv, data)) {
     fprintf(stderr, "Decrypt failed\n");
-    return 1;
+    return false;
   }
   if (search(f.name, data, entry)) {
     if (entry.updated_at) {
@@ -298,10 +298,10 @@ int handle_search(const struct cmd_flags &f, struct ent &entry) {
   if (!dkeyiv.empty() && f.linger) {
     linger(dkeyiv);
   }
-  return 0;
+  return true;
 }
 
-int handle_dump(const struct cmd_flags &f) {
+bool handle_dump(const struct cmd_flags &f) {
   auto ciphertext = read_file(f.store_path);
   std::string data, dkeyiv, key;
 
@@ -316,18 +316,18 @@ int handle_dump(const struct cmd_flags &f) {
   }
   if (!decrypt(ciphertext, dkeyiv, data)) {
     fprintf(stderr, "Decrypt failed\n");
-    return 1;
+    return false;
   }
   if (!dump(data)) {
-    return 1;
+    return false;
   }
   if (f.linger && !dkeyiv.empty()) {
     linger(dkeyiv);
   }
-  return 0;
+  return true;
 }
 
-int handle_chpass(const struct cmd_flags &f) {
+bool handle_chpass(const struct cmd_flags &f) {
   auto ciphertext = read_file(f.store_path);
   std::string data, dkeyiv, key;
 
@@ -336,18 +336,22 @@ int handle_chpass(const struct cmd_flags &f) {
   }
   dkeyiv = readpass_fromdaemon();
   if (dkeyiv.empty()) {
-    key = readpass("passphrase: ");
+    key = f.key.empty() ? readpass("passphrase: ") : f.key;
     derive_key(ciphertext, key, dkeyiv);
     explicit_bzero(&key[0], key.size());
   }
   if (!decrypt(ciphertext, dkeyiv, data)) {
     fprintf(stderr, "Decrypt failed\n");
-    return 1;
+    return false;
   }
   fprintf(stderr, "Resetting password for %s.\n", f.store_path.c_str());
-  key = readpass("set root passphrase: ");
-  if (key != readpass(" confirm passphrase: ")) {
-    bail("passwords didn't match.");
+  if (f.newkey.empty()) {
+    key = readpass("set root passphrase: ");
+    if (key != readpass(" confirm passphrase: ")) {
+      bail("passwords didn't match.");
+    }
+  } else {
+    key = f.newkey;
   }
   if (!save_backup(f.store_path)) {
     bail("failed to save backup. aborting.");
@@ -370,30 +374,36 @@ int handle_chpass(const struct cmd_flags &f) {
     explicit_bzero(&key[0], key.size());
     linger(dkeyiv);
   }
-  return 0;
+  return true;
 }
 
-int handle_update(const struct cmd_flags &f, struct ent &entry) {
+bool handle_update(const struct cmd_flags &f, struct ent &entry) {
   auto ciphertext = read_file(f.store_path);
-  std::string data, dkeyiv, key;
+  std::string data, dkeyiv, key = f.key;
   bool init_new = false;
 
   if (ciphertext.empty()) {
     fprintf(stderr, "Initializing new password store.\n");
     init_new = true;
-    key = readpass("set root passphrase: ");
-    if (key != readpass(" confirm passphrase: ")) {
-      bail("passwords didn't match.");
+    if (key.empty()) {
+      key = readpass("set root passphrase: ");
+      if (key != readpass(" confirm passphrase: ")) {
+        bail("passwords didn't match.");
+      }
     }
   } else {
     // can't use daemon because we need key to derive new dkeyiv
-    key = readpass("passphrase: ");
+    if (key.empty()) {
+      key = readpass("passphrase: ");
+    }
     derive_key(ciphertext, key, dkeyiv);
     if (!decrypt(ciphertext, dkeyiv, data)) {
       fprintf(stderr, "Decrypt failed\n");
-      return 1;
+      return false;
     }
   }
+  entry.name = f.name;
+  entry.meta = f.meta;
   entry.updated_at = time(nullptr);
   entry.password = random_str(15);
   std::string newdata;
@@ -423,7 +433,7 @@ int handle_update(const struct cmd_flags &f, struct ent &entry) {
     explicit_bzero(&key[0], key.size());
     linger(dkeyiv);
   }
-  return 0;
+  return true;
 }
 
 #ifndef TESTING
@@ -444,13 +454,13 @@ int main(int argc, char **argv) {
   }
 
   if (f.is_search()) {
-    return handle_search(f, entry);
+    return !handle_search(f, entry);
   } else if (f.update || f.remove) {
-    return handle_update(f, entry);
+    return !handle_update(f, entry);
   } else if (f.dump) {
-    return handle_dump(f);
+    return !handle_dump(f);
   } else if (f.chpass) {
-    return handle_chpass(f);
+    return !handle_chpass(f);
   }
   // should never happen
   usage();

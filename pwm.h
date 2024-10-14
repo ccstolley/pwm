@@ -53,16 +53,16 @@ std::string random_str(size_t sz);
 std::string sort_data(const std::string &data);
 void check_perms(const std::string &path);
 struct cmd_flags get_flags(int argc, char *const *argv);
-int handle_search(const struct cmd_flags &f, struct ent &entry);
-int handle_dump(const struct cmd_flags &f);
-int handle_chpass(const struct cmd_flags &f);
-int handle_update(const struct cmd_flags &f, struct ent &entry);
+bool handle_search(const struct cmd_flags &f, struct ent &entry);
+bool handle_dump(const struct cmd_flags &f);
+bool handle_chpass(const struct cmd_flags &f);
+bool handle_update(const struct cmd_flags &f, struct ent &entry);
 
 struct ent {
   std::string name;
   std::string meta;
   std::string password;
-  time_t updated_at;
+  time_t updated_at = 0;
   bool operator==(const ent &rhs) const {
     return (name == rhs.name && meta == rhs.meta && password == rhs.password);
   }
@@ -91,6 +91,8 @@ struct cmd_flags {
   std::string name;
   std::string meta;
   std::string store_path;
+  std::string key;    // for testing only
+  std::string newkey; // for testing only
   bool chpass = false;
   bool dump = false;
   bool linger = false;

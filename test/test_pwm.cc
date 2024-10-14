@@ -289,13 +289,15 @@ UTEST(PWMTest, verifySortData) {
   EXPECT_EQ(sort_data(dat), dat);
 }
 
+#define TEST_STORE "/tmp/pwmtest"
+
 UTEST(PWMTest, verifyGetFlags) {
 #pragma clang diagnostic push
 #pragma clang diagnostic ignored "-Wwritable-strings"
-#define TEST_STORE "/tmp/pwmtest"
   putenv("PWM_READONLY=0");
   putenv("PWM_LINGER=0");
   putenv("PWM_STORE=" TEST_STORE);
+  remove(TEST_STORE);
 
   // create an empty store file
   ASSERT_TRUE(dump_to_file("", TEST_STORE));
@@ -400,4 +402,43 @@ UTEST(PWMTest, verifyGetFlags) {
   EXPECT_FALSE(f.read_only);
 
 #pragma clang diagnostic pop
+}
+
+UTEST(PWMTest, verifyPasswordUpdate) {
+  putenv("PWM_READONLY=0");
+  putenv("PWM_LINGER=0");
+  putenv("PWM_STORE=" TEST_STORE);
+  remove(TEST_STORE);
+
+  std::vector<char *> argv{"pwm", "-u", "foo"};
+  auto f = get_flags(std::size(argv), argv.data());
+  f.key = "test!key123";
+
+  struct ent entry;
+  bool v = handle_update(f, entry);
+  ASSERT_TRUE(v);
+  v = handle_update(f, entry);
+  ASSERT_TRUE(v);
+  ASSERT_TRUE(handle_search(f, entry));
+}
+
+UTEST(PWMTest, verifyChangeMasterPassword) {
+  putenv("PWM_READONLY=0");
+  putenv("PWM_LINGER=0");
+  putenv("PWM_STORE=" TEST_STORE);
+  remove(TEST_STORE);
+
+  std::vector<char *> argv{"pwm", "-u", "foo"};
+  auto f = get_flags(std::size(argv), argv.data());
+  f.key = "test!key123";
+
+  struct ent entry;
+  bool v = handle_update(f, entry);
+  ASSERT_TRUE(v);
+
+  f.newkey = "change?key105dog";
+  ASSERT_TRUE(handle_chpass(f));
+
+  f.key = "change?key105dog";
+  ASSERT_TRUE(handle_search(f, entry));
 }
