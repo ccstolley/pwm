@@ -405,6 +405,8 @@ UTEST(PWMTest, verifyGetFlags) {
 }
 
 UTEST(PWMTest, verifyPasswordUpdate) {
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wwritable-strings"
   putenv("PWM_READONLY=0");
   putenv("PWM_LINGER=0");
   putenv("PWM_STORE=" TEST_STORE);
@@ -423,6 +425,7 @@ UTEST(PWMTest, verifyPasswordUpdate) {
       "what really happened",
       "ok but jeez just hang on a second and let me catch my breath its very "
       "hot in here"};
+#pragma clang diagnostic pop
   auto f = get_flags(std::size(argv), argv.data());
   f.key = "test!key123";
 
@@ -436,12 +439,15 @@ UTEST(PWMTest, verifyPasswordUpdate) {
 }
 
 UTEST(PWMTest, verifyChangeMasterPassword) {
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wwritable-strings"
   putenv("PWM_READONLY=0");
   putenv("PWM_LINGER=0");
   putenv("PWM_STORE=" TEST_STORE);
   remove(TEST_STORE);
 
   std::vector<char *> argv{"pwm", "-u", "foo"};
+#pragma clang diagnostic pop
   auto f = get_flags(std::size(argv), argv.data());
   f.key = "test!key123";
 
