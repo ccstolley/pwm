@@ -410,13 +410,26 @@ UTEST(PWMTest, verifyPasswordUpdate) {
   putenv("PWM_STORE=" TEST_STORE);
   remove(TEST_STORE);
 
-  std::vector<char *> argv{"pwm", "-u", "foo"};
+  std::vector<char *> argv{
+      "pwm",
+      "-u",
+      "foo",
+      "cstolley@dorkrange.com",
+      "ding dong ding dong",
+      "ok well then what happened",
+      "I don't know but i could tell it was something",
+      "So why not ask and then tell us later when you know for sure",
+      "I do think we could ask a few more questions first then we will see "
+      "what really happened",
+      "ok but jeez just hang on a second and let me catch my breath its very "
+      "hot in here"};
   auto f = get_flags(std::size(argv), argv.data());
   f.key = "test!key123";
 
   struct ent entry;
   bool v = handle_update(f, entry);
   ASSERT_TRUE(v);
+  f.meta = "cstolley@mail.com tamsams";
   v = handle_update(f, entry);
   ASSERT_TRUE(v);
   ASSERT_TRUE(handle_search(f, entry));

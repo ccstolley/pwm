@@ -820,7 +820,7 @@ bool decrypt(const std::string &ciphertext, const std::string &dkeyiv,
     return false;
   }
 
-  std::string s(ciphertext.size() + EVP_CIPHER_get_block_size(cipher), '\0');
+  std::string s(ciphertext.size() + EVP_MAX_BLOCK_LENGTH, '\0');
   if (EVP_CipherUpdate(
           ctx.get(), reinterpret_cast<unsigned char *>(s.data()), &sz,
           reinterpret_cast<const unsigned char *>(&(ciphertext.data()[HDRSZ])),
@@ -873,7 +873,7 @@ bool encrypt(const std::string &plaintext, const std::string &key,
     return false;
   }
 
-  std::string s(plaintext.size() + EVP_CIPHER_get_block_size(cipher), '\0');
+  std::string s(plaintext.size() + EVP_MAX_BLOCK_LENGTH, '\0');
   if (EVP_CipherUpdate(
           ctx.get(), reinterpret_cast<unsigned char *>(s.data()), &sz,
           reinterpret_cast<const unsigned char *>(plaintext.data()),
