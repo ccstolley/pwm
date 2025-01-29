@@ -25,6 +25,16 @@ static std::string default_store_path() {
   return path;
 }
 
+static std::string socket_path() {
+  const char *home = std::getenv("HOME");
+  if (home == nullptr) {
+    home = "";
+  }
+  std::string path{home};
+  path += "/.pwm.sock";
+  return path;
+}
+
 [[noreturn]] static void usage() {
   bail("usage: pwm [-d | -C | -u <name> [<meta>...] | -r name | <pattern>\n\n"
        "options:\n"
@@ -91,8 +101,7 @@ static void linger(const std::string_view key) {
   struct timespec start;
   clock_gettime(CLOCK_MONOTONIC, &start);
 
-  std::string path{"/tmp/pwm."};
-  path += std::getenv("USER");
+  auto path = socket_path();
   int sock;
   struct sockaddr_un sunaddr;
 
@@ -124,6 +133,10 @@ static void linger(const std::string_view key) {
       // already lingering, so do nothing.
       return;
     }
+  }
+
+  if (0 != chmod(path.c_str(), S_IRUSR | S_IWUSR)) {
+    bail("%s\n socket must be read/writeable by owner only.", path.c_str());
   }
 
   if (listen(sock, 2) == -1) {
@@ -274,14 +287,15 @@ bool handle_search(const struct cmd_flags &f, struct ent &entry) {
     bail("missing or corrupt store: %s", f.store_path.c_str());
   }
   dkeyiv = readpass_fromdaemon();
-  if (dkeyiv.empty()) {
+  if (dkeyiv.empty() || !decrypt(ciphertext, dkeyiv, data)) {
+    maybe_shutdown_daemon();
     key = f.key.empty() ? readpass("passphrase: ") : f.key;
     derive_key(ciphertext, key, dkeyiv);
     explicit_bzero(&key[0], key.size());
-  }
-  if (!decrypt(ciphertext, dkeyiv, data)) {
-    fprintf(stderr, "Decrypt failed\n");
-    return false;
+    if (!decrypt(ciphertext, dkeyiv, data)) {
+      fprintf(stderr, "Decrypt failed\n");
+      return false;
+    }
   }
   if (search(f.name, data, entry)) {
     if (entry.updated_at) {
@@ -694,8 +708,8 @@ bool maybe_shutdown_daemon() {
   struct sockaddr_un sunaddr;
   memset(&sunaddr, 0, sizeof(sunaddr));
   sunaddr.sun_family = AF_UNIX;
-  snprintf(sunaddr.sun_path, sizeof(sunaddr.sun_path), "/tmp/pwm.%s",
-           std::getenv("USER"));
+  snprintf(sunaddr.sun_path, sizeof(sunaddr.sun_path), "%s",
+           socket_path().c_str());
   int sock;
 
   if ((sock = socket(AF_UNIX, SOCK_STREAM, 0)) == -1) {
@@ -718,8 +732,8 @@ std::string readpass_fromdaemon() {
   struct sockaddr_un sunaddr;
   memset(&sunaddr, 0, sizeof(sunaddr));
   sunaddr.sun_family = AF_UNIX;
-  snprintf(sunaddr.sun_path, sizeof(sunaddr.sun_path), "/tmp/pwm.%s",
-           std::getenv("USER"));
+  snprintf(sunaddr.sun_path, sizeof(sunaddr.sun_path), "%s",
+           socket_path().c_str());
   int sock;
 
   if ((sock = socket(AF_UNIX, SOCK_STREAM, 0)) == -1) {
