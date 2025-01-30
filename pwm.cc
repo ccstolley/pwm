@@ -36,11 +36,11 @@ static std::string socket_path() {
 }
 
 [[noreturn]] static void usage() {
-  bail("usage: pwm [-d | -C | -u <name> [<meta>...] | -r name | <pattern>\n\n"
+  bail("usage: pwm [-d | -C | -u <name> [<meta>...] | -r name | <pattern>]\n\n"
        "options:\n"
        "  -C  change master password on existing store\n"
        "  -d  dump all passwords to stderr\n"
-       "  -l  linger for passwordless queries in future invocations\n"
+       "  -l  linger seconds for passwordless queries in future invocations\n"
        "  -u  create/update password with <name> and optional <meta> data\n"
        "  -r  remove password with <name>\n");
 }
@@ -50,9 +50,12 @@ static std::string socket_path() {
   return v != nullptr && strncmp(v, "0", 1) != 0;
 }
 
-[[nodiscard]] static bool is_linger_enabled() {
+[[nodiscard]] static int linger_duration() {
   auto v = std::getenv("PWM_LINGER");
-  return v != nullptr && strncmp(v, "0", 1) != 0;
+  if (v != nullptr) {
+    return std::max(0, atoi(v));
+  }
+  return 0;
 }
 
 [[nodiscard]] static std::string get_store_path() {
@@ -90,7 +93,7 @@ static void sigpipe(__attribute__((unused)) int a) { bail("Received SIGPIPE"); }
 /* serve master password to future invocations for a limited period of time */
 using pollfd_t = struct pollfd;
 
-static void linger(const std::string_view key) {
+static void linger(const std::string_view key, int timeout) {
   close(fileno(stdin));
   pid_t pid = fork();
   if (pid != 0) {
@@ -153,7 +156,7 @@ static void linger(const std::string_view key) {
     struct timespec now;
     clock_gettime(CLOCK_MONOTONIC, &now);
 
-    if (now.tv_sec - start.tv_sec > 21600) {
+    if (now.tv_sec - start.tv_sec > timeout) {
       break;
     }
 
@@ -206,13 +209,13 @@ struct cmd_flags get_flags(int argc, char *const *argv) {
   struct cmd_flags f;
   int ch;
 
-  f.linger = is_linger_enabled();
+  f.linger = linger_duration();
   f.read_only = is_read_only();
   f.store_path = get_store_path();
   optind = opterr = 1; // for tests
   std::vector<std::string> args;
 
-  while ((ch = getopt(argc, argv, "-Cdlur")) != -1) {
+  while ((ch = getopt(argc, argv, "-Cdl:ur")) != -1) {
     switch (ch) {
     case 'r':
       f.remove = true;
@@ -221,7 +224,7 @@ struct cmd_flags get_flags(int argc, char *const *argv) {
       f.update = true;
       break;
     case 'l':
-      f.linger = true;
+      f.linger = std::max(0, atoi(optarg));
       break;
     case 'd':
       f.dump = true;
@@ -310,7 +313,7 @@ bool handle_search(const struct cmd_flags &f, struct ent &entry) {
     fprintf(stderr, "Not found.\n");
   }
   if (!dkeyiv.empty() && f.linger) {
-    linger(dkeyiv);
+    linger(dkeyiv, f.linger);
   }
   return true;
 }
@@ -336,7 +339,7 @@ bool handle_dump(const struct cmd_flags &f) {
     return false;
   }
   if (f.linger && !dkeyiv.empty()) {
-    linger(dkeyiv);
+    linger(dkeyiv, f.linger);
   }
   return true;
 }
@@ -386,7 +389,7 @@ bool handle_chpass(const struct cmd_flags &f) {
 
   if (f.linger && derive_key(newdata, key, dkeyiv)) {
     explicit_bzero(&key[0], key.size());
-    linger(dkeyiv);
+    linger(dkeyiv, f.linger);
   }
   return true;
 }
@@ -445,7 +448,7 @@ bool handle_update(const struct cmd_flags &f, struct ent &entry) {
   }
   if (f.linger && derive_key(data, key, dkeyiv)) {
     explicit_bzero(&key[0], key.size());
-    linger(dkeyiv);
+    linger(dkeyiv, f.linger);
   }
   return true;
 }

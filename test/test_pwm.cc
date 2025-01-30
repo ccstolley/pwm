@@ -310,7 +310,7 @@ UTEST(PWMTest, verifyGetFlags) {
   EXPECT_EQ("foo", f.name);
   EXPECT_EQ("", f.meta);
 
-  argv = {"pwm", "-l", "foo"};
+  argv = {"pwm", "-l", "4", "foo"};
   f = get_flags(std::size(argv), argv.data());
   EXPECT_TRUE(f.is_search());
   EXPECT_TRUE(f.linger);
@@ -318,7 +318,7 @@ UTEST(PWMTest, verifyGetFlags) {
   EXPECT_EQ("foo", f.name);
   EXPECT_EQ("", f.meta);
 
-  argv = {"pwm", "bar", "foo", "-l"};
+  argv = {"pwm", "bar", "foo", "-l", "4"};
   f = get_flags(std::size(argv), argv.data());
   EXPECT_TRUE(f.is_search());
   EXPECT_TRUE(f.linger);
@@ -326,7 +326,7 @@ UTEST(PWMTest, verifyGetFlags) {
   EXPECT_EQ("bar", f.name);
   EXPECT_EQ("foo", f.meta);
 
-  argv = {"pwm", "-l", "bar", "foo", "-u"};
+  argv = {"pwm", "-l", "4", "bar", "foo", "-u"};
   f = get_flags(std::size(argv), argv.data());
   EXPECT_FALSE(f.is_search());
   EXPECT_TRUE(f.update);
@@ -394,7 +394,7 @@ UTEST(PWMTest, verifyGetFlags) {
   EXPECT_FALSE(f.linger);
   EXPECT_FALSE(f.read_only);
 
-  argv = {"pwm", "-Cl", "foo"};
+  argv = {"pwm", "-Cl300", "foo"};
   f = get_flags(std::size(argv), argv.data());
   EXPECT_FALSE(f.is_search());
   EXPECT_FALSE(f.update);

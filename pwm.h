@@ -95,7 +95,7 @@ struct cmd_flags {
   std::string newkey; // for testing only
   bool chpass = false;
   bool dump = false;
-  bool linger = false;
+  int linger = 0; // 0 means disabled
   bool remove = false;
   bool read_only = false;
   bool update = false;
