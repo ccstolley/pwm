@@ -88,7 +88,8 @@ static bool socket_is_live(const std::string &path) {
   return false;
 }
 
-static void sigpipe(__attribute__((unused)) int a) { bail("Received SIGPIPE"); }
+static bool signaled = false;
+static void set_signaled(__attribute__((unused)) int a) { signaled = true; }
 
 /* serve master password to future invocations for a limited period of time */
 using pollfd_t = struct pollfd;
@@ -104,7 +105,7 @@ static void linger(const std::string_view key, int timeout) {
   struct timespec start;
   clock_gettime(CLOCK_MONOTONIC, &start);
 
-  auto path = socket_path();
+  const auto path = socket_path();
   int sock;
   struct sockaddr_un sunaddr;
 
@@ -137,20 +138,36 @@ static void linger(const std::string_view key, int timeout) {
       return;
     }
   }
+  signal(SIGPIPE, set_signaled);
+  signal(SIGTERM, set_signaled);
+  signal(SIGPIPE, set_signaled);
+  signal(SIGINT, set_signaled);
+  signal(SIGHUP, set_signaled);
+
+  struct SocketCleanup {
+    ~SocketCleanup() {
+      close(_sock);
+      unlink(_path.c_str());
+    }
+    const int _sock;
+    const std::string _path;
+  } _sc = {sock, path};
 
   if (0 != chmod(path.c_str(), S_IRUSR | S_IWUSR)) {
-    bail("%s\n socket must be read/writeable by owner only.", path.c_str());
+    fprintf(stderr, "%s\n socket must be read/writeable by owner only.\n",
+            path.c_str());
+    return;
   }
 
   if (listen(sock, 2) == -1) {
-    bail("Unable to listen on socket %s", strerror(errno));
+    fprintf(stderr, "Unable to listen on socket %s\n", strerror(errno));
+    return;
   }
 
   if (pledge("stdio inet", NULL) != 0) {
-    bail("pledge(2) failed at %d.", __LINE__);
+    fprintf(stderr, "pledge(2) failed at %d.\n", __LINE__);
+    return;
   }
-
-  signal(SIGPIPE, sigpipe);
 
   while (true) {
     struct timespec now;
@@ -162,17 +179,21 @@ static void linger(const std::string_view key, int timeout) {
 
     pollfd_t fds{sock, POLLIN, 0};
     int rv = poll(&fds, 1, 5000);
-    if (rv < 0) {
-      bail("Failed to poll() sock");
-    }
-    if (rv == 0) {
+    if (signaled) {
+      fprintf(stderr, "Shutdown on signal\n");
+      break;
+    } else if (rv < 0) {
+      fprintf(stderr, "Failed to poll() sock\n");
+      break;
+    } else if (rv == 0) {
       continue;
     }
     struct sockaddr_storage addr;
     socklen_t len = sizeof(addr);
     int csock = accept(sock, (struct sockaddr *)&addr, &len);
     if (csock == -1) {
-      bail("accept() failed %d %s", csock, strerror(errno));
+      fprintf(stderr, "accept() failed %d %s\n", csock, strerror(errno));
+      break;
     }
     char buf[32] = {0};
 
@@ -202,7 +223,6 @@ static void linger(const std::string_view key, int timeout) {
     close(csock);
     clock_gettime(CLOCK_MONOTONIC, &start); // reset linger timer
   }
-  close(sock);
 }
 
 struct cmd_flags get_flags(int argc, char *const *argv) {
