@@ -41,6 +41,8 @@ static std::string socket_path() {
        "  -C  change master password on existing store\n"
        "  -d  dump all passwords to stderr\n"
        "  -l  linger seconds for passwordless queries in future invocations\n"
+       "  -p  Read password from stdin instead of randomly generating one, "
+       "implies -u\n"
        "  -u  create/update password with <name> and optional <meta> data\n"
        "  -r  remove password with <name>\n");
 }
@@ -235,7 +237,7 @@ struct cmd_flags get_flags(int argc, char *const *argv) {
   optind = opterr = 1; // for tests
   std::vector<std::string> args;
 
-  while ((ch = getopt(argc, argv, "-Cdl:ur")) != -1) {
+  while ((ch = getopt(argc, argv, "-Cdl:urp")) != -1) {
     switch (ch) {
     case 'r':
       f.remove = true;
@@ -251,6 +253,10 @@ struct cmd_flags get_flags(int argc, char *const *argv) {
       break;
     case 'C':
       f.chpass = true;
+      break;
+    case 'p':
+      f.readpass = true;
+      f.update = true;
       break;
     case '\1':
       // non-option arg
@@ -442,7 +448,16 @@ bool handle_update(const struct cmd_flags &f, struct ent &entry) {
   entry.name = f.name;
   entry.meta = f.meta;
   entry.updated_at = time(nullptr);
-  entry.password = random_str(15);
+  if (f.readpass) {
+    if (!f.password.empty()) {
+      // for tests
+      entry.password = f.password;
+    } else {
+      entry.password = readpass("set passphrase: ");
+    }
+  } else {
+    entry.password = random_str(15);
+  }
   std::string newdata;
   if (!update(data, entry, newdata, f.remove)) {
     bail("%s failed.", f.remove ? "remove" : "update");

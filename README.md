@@ -10,6 +10,7 @@ options:
   -C  change master password on existing store
   -d  dump all passwords to stderr
   -l  linger for passwordless queries in future invocations
+  -p  Read password from stdin instead of randomly generating one, implies -u
   -u  create/update password with <name> and optional <meta> data
   -r  remove password with <name>
 ```
@@ -32,7 +33,9 @@ Running `pwm` on multiple machines with copies of the same store can
 create consistency problems, so you can force pwm to be read-only by
 setting `PWM_READONLY=1`.
 
-`pwm` generates random passwords for you when you add/update--it does not allow you to store existing passwords.
+`pwm` generates random passwords for you when you add/update. You may
+instead use the `-p` option to be prompted to specify the password
+explicitly.
 
 Supported Platforms
 --

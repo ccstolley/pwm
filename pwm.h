@@ -91,9 +91,11 @@ struct cmd_flags {
   std::string name;
   std::string meta;
   std::string store_path;
-  std::string key;    // for testing only
-  std::string newkey; // for testing only
+  std::string key;      // for testing only
+  std::string newkey;   // for testing only
+  std::string password; // for testing only
   bool chpass = false;
+  bool readpass = false;
   bool dump = false;
   int linger = 0; // 0 means disabled
   bool remove = false;

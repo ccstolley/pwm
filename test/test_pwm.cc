@@ -438,6 +438,31 @@ UTEST(PWMTest, verifyPasswordUpdate) {
   ASSERT_TRUE(handle_search(f, entry));
 }
 
+UTEST(PWMTest, verifyExplicitPasswordUpdate) {
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wwritable-strings"
+  putenv("PWM_READONLY=0");
+  putenv("PWM_LINGER=0");
+  putenv("PWM_STORE=" TEST_STORE);
+  remove(TEST_STORE);
+
+  std::vector<char *> argv{"pwm", "-p", "foobar", "extra", "info"};
+#pragma clang diagnostic pop
+  auto f = get_flags(std::size(argv), argv.data());
+  f.key = "test!key123";
+  // TODO: test passwords with spaces or colons (breaks)
+  f.password = "atestpassword";
+
+  struct ent entry;
+  bool v = handle_update(f, entry);
+  ASSERT_TRUE(v);
+  ASSERT_TRUE(handle_search(f, entry));
+  ASSERT_TRUE(v);
+  ASSERT_EQ(entry.password, f.password);
+  ASSERT_EQ(entry.meta, "extra info");
+  ASSERT_EQ(entry.name, "foobar");
+}
+
 UTEST(PWMTest, verifyChangeMasterPassword) {
 #pragma clang diagnostic push
 #pragma clang diagnostic ignored "-Wwritable-strings"
