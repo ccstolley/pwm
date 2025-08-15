@@ -166,7 +166,7 @@ static void linger(const std::string_view key, int timeout) {
     return;
   }
 
-  if (pledge("stdio inet", NULL) != 0) {
+  if (pledge("cpath stdio inet", NULL) != 0) {
     fprintf(stderr, "pledge(2) failed at %d.\n", __LINE__);
     return;
   }
@@ -796,7 +796,7 @@ std::string readpass_fromdaemon() {
 }
 
 std::string readpass(const std::string &prompt) {
-  char key[EVP_MAX_KEY_LENGTH] = {0};
+  char key[EVP_MAX_KEY_LENGTH+1] = {0};
 
   if (readpassphrase(prompt.c_str(), key, sizeof(key), 0) == NULL) {
     bail("failed to read passphrase");
