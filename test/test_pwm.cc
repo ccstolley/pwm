@@ -13,7 +13,7 @@ UTEST(PWMTest, verifyDumpToFile) {
 
   std::ifstream in(filename, std::ifstream::binary | std::ifstream::ate);
   auto size = in.tellg();
-  ASSERT_EQ(size, static_cast<long long>(data1.size()));
+  ASSERT_EQ(static_cast<long long>(size), static_cast<long long>(data1.size()));
 
   std::string s(size, '\0');
   in.seekg(0);
@@ -182,26 +182,35 @@ UTEST(PWMTest, verifyParseEntry) {
   struct ent e5 {
     "goo", "zar", "pizza", 1632853098
   };
+  struct ent e6 {
+    "Bäckerei", "Übel Pizza", "zar", 1632853498
+  };
+
   struct ent t;
 
   EXPECT_TRUE(parse_entry("foo: bar baz\n", t));
-  EXPECT_TRUE(e1 == t);
+  EXPECT_EQ(e1, t);
   t.clear();
 
   EXPECT_TRUE(parse_entry("cow: bar beet 1632853098 zap\n", t));
-  EXPECT_TRUE(e2 == t);
+  EXPECT_EQ(e2, t);
   t.clear();
   EXPECT_TRUE(parse_entry("dog: 1632853098 zap\n", t));
-  EXPECT_TRUE(e3 == t);
+  EXPECT_EQ(e3, t);
 
   t.updated_at = 8840123;
   EXPECT_TRUE(parse_entry("goo: 2Ua02=bar\n", t));
-  EXPECT_TRUE(e4 == t);
+  EXPECT_EQ(e4, t);
   t.clear();
 
   EXPECT_TRUE(parse_entry("goo: zar 1632853098 pizza\n", t));
-  EXPECT_TRUE(e5 == t);
+  EXPECT_EQ(e5, t);
   t.clear();
+
+  EXPECT_TRUE(parse_entry("Bäckerei: Übel Pizza 1632853598 zar", t));
+  EXPECT_EQ(e6, t);
+  t.clear();
+
 }
 
 UTEST(PWMTest, verifyUpdate) {

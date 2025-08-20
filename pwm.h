@@ -72,6 +72,15 @@ struct ent {
     password.clear();
     updated_at = 0;
   }
+
+  std::string to_string() const {
+    std::string s;
+    s = "[name=" + name + "] [updated_at=" + std::to_string(updated_at) +
+        "] [password=" + password + "]";
+    if (!meta.empty())
+      s += " [meta=" + meta + "]";
+    return s;
+  }
 };
 
 struct EvpCipherContext {
@@ -109,10 +118,10 @@ struct cmd_flags {
   bool validate_search() { return !name.empty() || dump || chpass; }
   bool validate_store_path() { return !store_path.empty(); }
 
-  bool uses_writeops() { return remove || update || chpass; }
-  bool is_search() { return !uses_writeops() && !dump; }
+  bool uses_writeops() const { return remove || update || chpass; }
+  bool is_search() const { return !uses_writeops() && !dump; }
 
-  std::string to_string() {
+  std::string to_string() const {
     std::string s;
     s += "name: " + name + "\n";
     s += "meta: " + meta + "\n";
