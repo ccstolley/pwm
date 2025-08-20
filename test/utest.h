@@ -541,6 +541,12 @@ template <typename T> struct utest_type_deducer<const T *, false> {
   }
 };
 
+template <> struct utest_type_deducer<std::string, false> {
+  static void _(const std::string &t) {
+    UTEST_PRINTF("%s", t.c_str());
+  }
+};
+
 template <typename T> struct utest_type_deducer<T *, false> {
   static void _(T *t) { UTEST_PRINTF("%p", static_cast<void *>(t)); }
 };
@@ -548,6 +554,12 @@ template <typename T> struct utest_type_deducer<T *, false> {
 template <typename T> struct utest_type_deducer<T, true> {
   static void _(const T t) {
     UTEST_PRINTF("%llu", static_cast<unsigned long long>(t));
+  }
+};
+
+template <typename T> struct utest_type_deducer<T, false> {
+  static void _(const T &t) {
+    UTEST_PRINTF("%s", t.to_string().c_str());
   }
 };
 
@@ -761,7 +773,7 @@ utest_strncpy_gcc(char *const dst, const char *const src, const size_t size) {
       UTEST_PRINTF(")\n");                                                     \
       UTEST_PRINTF("    Actual : ");                                           \
       utest_type_printer(xEval);                                               \
-      UTEST_PRINTF(" vs ");                                                    \
+      UTEST_PRINTF("\n             ");                                         \
       utest_type_printer(yEval);                                               \
       UTEST_PRINTF("\n");                                                      \
       if (strlen(msg) > 0) {                                                   \
@@ -789,7 +801,7 @@ utest_strncpy_gcc(char *const dst, const char *const src, const size_t size) {
       UTEST_PRINTF(")\n");                                                     \
       UTEST_PRINTF("    Actual : ");                                           \
       utest_type_printer(xEval);                                               \
-      UTEST_PRINTF(" vs ");                                                    \
+      UTEST_PRINTF("\n             ");                                         \
       utest_type_printer(yEval);                                               \
       UTEST_PRINTF("\n");                                                      \
       if (strlen(msg) > 0) {                                                   \
