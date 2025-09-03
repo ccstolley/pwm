@@ -1,7 +1,8 @@
 UNAME = `uname`
 PORTABLE = -I portable portable/arc4random.c portable/readpassphrase.c portable/pledge.c
 LIBS=-lz -lcrypto
-CXXFLAGS=--std=c++17 -g -pedantic -Wall -Wextra -Wno-unused-function -Wno-write-strings
+CXXFLAGS=--std=c++20 -g -pedantic -Wall -Wextra -Wno-unused-function -Wno-write-strings
+CXX=c++
 
 DetectOS:
 	-@make $(UNAME)

@@ -4,6 +4,9 @@
 #include <cstdio>
 #include <stdlib.h>
 
+using namespace std::string_literals;
+using namespace std::string_view_literals;
+
 UTEST_MAIN();
 
 UTEST(PWMTest, verifyDumpToFile) {
@@ -29,29 +32,29 @@ UTEST(PWMTest, verifyTrim) {
   std::vector<std::string> testcases{"  a space",   "a space  ", "  a space  ",
                                      "\ta space  ", "a space\n", "a space"};
   for (const auto &t : testcases) {
-    EXPECT_EQ(trim(t), "a space");
+    EXPECT_EQ(Storage::trim(t), "a space");
   }
-  EXPECT_EQ(trim("   \n\t"), "");
-  EXPECT_EQ(trim(""), "");
-  EXPECT_EQ(trim("\n"), "");
-  EXPECT_EQ(trim("\n "), "");
+  EXPECT_EQ(Storage::trim("   \n\t"), "");
+  EXPECT_EQ(Storage::trim(""), "");
+  EXPECT_EQ(Storage::trim("\n"), "");
+  EXPECT_EQ(Storage::trim("\n "), "");
 }
 
 UTEST(PWMTest, verifySplit) {
-  auto pieces = split("  split along  different ", " ");
+  auto pieces = Storage::split("  Storage::split along  different ", " ");
   ASSERT_EQ(pieces.size(), 3u);
-  EXPECT_EQ(pieces[0], "split");
+  EXPECT_EQ(pieces[0], "Storage::split");
   EXPECT_EQ(pieces[1], "along");
   EXPECT_EQ(pieces[2], "different");
 
-  pieces = split("nospace", " ");
+  pieces = Storage::split("nospace", " ");
   ASSERT_EQ(pieces.size(), 1u);
   EXPECT_EQ(pieces[0], "nospace");
 
-  pieces = split("", " ");
+  pieces = Storage::split("", " ");
   EXPECT_EQ(pieces.size(), 0u);
 
-  pieces = split(" ", " ");
+  pieces = Storage::split(" ", " ");
   EXPECT_EQ(pieces.size(), 0u);
 }
 
@@ -98,7 +101,7 @@ UTEST(PWMTest, verifyFind) {
       "cat: four 5 6\nmouse: 100..z()\nblonde: 1632857699 passw\n"
       "tape: mall time 1632857700 passwood\nblorgish: 2Ua02=bar");
 
-  struct ent e;
+  Storage::Entry e;
 
   e.clear();
   EXPECT_TRUE(search("dog", dat, e));
@@ -151,14 +154,23 @@ UTEST(PWMTest, verifyFind) {
 }
 
 UTEST(PWMTest, verifyDumpEntry) {
-  struct ent e1 {
-    "foo", "bar", "baz", 0
+  Storage::Entry e1{
+      .name = "foo",
+      .updated_at = 0,
+      .password = "baz",
+      .meta = "bar",
   };
-  struct ent e2 {
-    "foo", "bar beet", "baz", 1632853098
+  Storage::Entry e2{
+      .name = "foo",
+      .updated_at = 1632853098,
+      .password = "baz",
+      .meta = "bar beet",
   };
-  struct ent e3 {
-    "foo", "", "baz", 1632853098
+  Storage::Entry e3{
+      .name = "foo",
+      .updated_at = 1632853098,
+      .password = "baz",
+      .meta = "",
   };
 
   EXPECT_EQ(dump_entry(e1), "foo: bar baz\n");
@@ -166,57 +178,66 @@ UTEST(PWMTest, verifyDumpEntry) {
   EXPECT_EQ(dump_entry(e3), "foo: 1632853098 baz\n");
 }
 
-UTEST(PWMTest, verifyParseEntry) {
-  struct ent e1 {
-    "foo", "bar", "baz", 0
+UTEST(PWMTest, verifyDeserializeOld) {
+  Storage::Entry e1{
+      .name = "foo",
+      .updated_at = 0,
+      .password = "baz",
+      .meta = "bar",
   };
-  struct ent e2 {
-    "cow", "bar beet", "zap", 1632853098
+  Storage::Entry e2{
+      .name = "cow",
+      .updated_at = 1632853098,
+      .password = "zap",
+      .meta = "bar beet",
   };
-  struct ent e3 {
-    "dog", "", "zap", 1632853098
+  Storage::Entry e3{
+      .name = "dog",
+      .updated_at = 1632853098,
+      .password = "zap",
+      .meta = "",
   };
-  struct ent e4 {
-    "goo", "", "2Ua02=bar", 0
+  Storage::Entry e4{
+      .name = "goo",
+      .updated_at = 0,
+      .password = "2Ua02=bar",
+      .meta = "",
   };
-  struct ent e5 {
-    "goo", "zar", "pizza", 1632853098
+  Storage::Entry e5{
+      .name = "goo",
+      .updated_at = 1632853098,
+      .password = "pizza",
+      .meta = "zar",
   };
-  struct ent e6 {
-    "Bäckerei", "Übel Pizza", "zar", 1632853498
+  Storage::Entry e6{
+      .name = "Bäckerei",
+      .updated_at = 1632853598,
+      .password = "zar",
+      .meta = "Übel Pizza",
   };
 
-  struct ent t;
-
-  EXPECT_TRUE(parse_entry("foo: bar baz\n", t));
+  Storage::Entry t;
+  std::string_view want =
+      "foo: bar baz\ncow: bar beet 1632853098 zap\ndog: 1632853098 zap\n"
+      "goo: 2Ua02=bar\ngoo: zar 1632853098 pizza\nBäckerei: Übel Pizza 1632853598 zar\n"sv;
+  EXPECT_TRUE(Storage::deserialize_old(want, t));
   EXPECT_EQ(e1, t);
-  t.clear();
-
-  EXPECT_TRUE(parse_entry("cow: bar beet 1632853098 zap\n", t));
+  EXPECT_TRUE(Storage::deserialize_old(want, t));
   EXPECT_EQ(e2, t);
-  t.clear();
-  EXPECT_TRUE(parse_entry("dog: 1632853098 zap\n", t));
+  EXPECT_TRUE(Storage::deserialize_old(want, t));
   EXPECT_EQ(e3, t);
-
-  t.updated_at = 8840123;
-  EXPECT_TRUE(parse_entry("goo: 2Ua02=bar\n", t));
+  EXPECT_TRUE(Storage::deserialize_old(want, t));
   EXPECT_EQ(e4, t);
-  t.clear();
-
-  EXPECT_TRUE(parse_entry("goo: zar 1632853098 pizza\n", t));
+  EXPECT_TRUE(Storage::deserialize_old(want, t));
   EXPECT_EQ(e5, t);
-  t.clear();
-
-  EXPECT_TRUE(parse_entry("Bäckerei: Übel Pizza 1632853598 zar", t));
+  EXPECT_TRUE(Storage::deserialize_old(want, t));
   EXPECT_EQ(e6, t);
-  t.clear();
-
 }
 
 UTEST(PWMTest, verifyUpdate) {
   std::string dat(
       "dog: one 5 two\ncatdog: four thumb 5te\nmouse: 942 100..z()\n");
-  struct ent e;
+  Storage::Entry e;
   std::string newdat;
 
   // update
@@ -438,7 +459,7 @@ UTEST(PWMTest, verifyPasswordUpdate) {
   auto f = get_flags(std::size(argv), argv.data());
   f.key = "test!key123";
 
-  struct ent entry;
+  Storage::Entry entry;
   bool v = handle_update(f, entry);
   ASSERT_TRUE(v);
   f.meta = "cstolley@mail.com tamsams";
@@ -462,7 +483,7 @@ UTEST(PWMTest, verifyExplicitPasswordUpdate) {
   // TODO: test passwords with spaces or colons (breaks)
   f.password = "atestpassword";
 
-  struct ent entry;
+  Storage::Entry entry;
   bool v = handle_update(f, entry);
   ASSERT_TRUE(v);
   ASSERT_TRUE(handle_search(f, entry));
@@ -485,7 +506,7 @@ UTEST(PWMTest, verifyChangeMasterPassword) {
   auto f = get_flags(std::size(argv), argv.data());
   f.key = "test!key123";
 
-  struct ent entry;
+  Storage::Entry entry;
   bool v = handle_update(f, entry);
   ASSERT_TRUE(v);
 
@@ -494,4 +515,23 @@ UTEST(PWMTest, verifyChangeMasterPassword) {
 
   f.key = "change?key105dog";
   ASSERT_TRUE(handle_search(f, entry));
+}
+
+UTEST(PWMTest, verifyStorage) {
+  const Storage::Entry ent{"colin", 1756316540, "passWordie21",
+                           "Ok meta data for everyone!!"};
+  const auto want =
+      "\x00\x05"s +
+      "colin\x00\n1756316540\x00\x0cpassWordie21\x00\x1bOk meta data for everyone!!\x00\x00"s;
+  EXPECT_EQ(Storage::serialize(ent), want);
+
+  Storage::Entry gotEnt;
+  std::string_view wantsv{want};
+  EXPECT_TRUE(Storage::deserialize(wantsv, gotEnt));
+  EXPECT_EQ(gotEnt, ent);
+
+  Storage sto{want};
+  EXPECT_TRUE(sto.next(gotEnt));
+  EXPECT_EQ(gotEnt, ent);
+  EXPECT_FALSE(sto.next(gotEnt));
 }

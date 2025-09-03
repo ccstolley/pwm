@@ -308,7 +308,7 @@ struct cmd_flags get_flags(int argc, char *const *argv) {
   return f;
 }
 
-bool handle_search(const struct cmd_flags &f, struct ent &entry) {
+bool handle_search(const struct cmd_flags &f, Storage::Entry &entry) {
   auto ciphertext = read_file(f.store_path);
   std::string data, dkeyiv, key;
 
@@ -420,7 +420,7 @@ bool handle_chpass(const struct cmd_flags &f) {
   return true;
 }
 
-bool handle_update(const struct cmd_flags &f, struct ent &entry) {
+bool handle_update(const struct cmd_flags &f, Storage::Entry &entry) {
   auto ciphertext = read_file(f.store_path);
   std::string data, dkeyiv, key = f.key;
   bool init_new = false;
@@ -490,7 +490,7 @@ bool handle_update(const struct cmd_flags &f, struct ent &entry) {
 
 #ifndef TESTING
 int main(int argc, char **argv) {
-  struct ent entry;
+  Storage::Entry entry;
   auto f = get_flags(argc, argv);
   entry.name = f.name;
   entry.meta = f.meta;
@@ -528,7 +528,7 @@ bool dump(const std::string &data) {
   return true;
 }
 
-bool update(const std::string &data, const struct ent &newent,
+bool update(const std::string &data, const Storage::Entry &newent,
             std::string &revised, bool remove) {
   std::stringstream linestream{data};
   std::stringstream editstream{};
@@ -536,9 +536,9 @@ bool update(const std::string &data, const struct ent &newent,
   bool exact = false;
 
   for (std::string line; std::getline(linestream, line);) {
-    struct ent entry;
+    Storage::Entry entry;
     if (newent.name == line.substr(0, newent.name.size()) &&
-        parse_entry(line, entry)) {
+        Storage::parse_entry(line, entry)) {
       if (found) {
         if (!exact) {
           fprintf(stderr, "error: '%s' also matches '%s'.\n",
@@ -633,23 +633,24 @@ std::string sort_data(const std::string &data) {
 bool dump_to_file(const std::string &data, const std::string &filename) {
   umask(077); // rw by owner only
 
-  std::ofstream out(filename);
+  std::ofstream out(filename, std::ios::binary);
   if (!out) {
     return false;
   }
-  out.write(data.c_str(), static_cast<long>(sizeof(char) * data.size()));
+  out.write(data.data(), static_cast<long>(sizeof(char) * data.size()));
   return out.good();
 }
 
 bool search(const std::string &needle, const std::string &haystack,
-            struct ent &entry) {
+            Storage::Entry &entry) {
   std::stringstream linestream{haystack};
   bool found = false;
   bool exact = false;
-  struct ent match;
+  Storage::Entry match;
 
   for (std::string line; std::getline(linestream, line);) {
-    if (needle != line.substr(0, needle.size()) || !parse_entry(line, match)) {
+    if (needle != line.substr(0, needle.size()) ||
+        !Storage::parse_entry(line, match)) {
       continue;
     }
     if (found) {
@@ -667,79 +668,11 @@ bool search(const std::string &needle, const std::string &haystack,
   return found;
 }
 
-bool parse_entry(const std::string &line, struct ent &entry) {
-  auto fields = split(line, ":");
-  if (fields.size() < 2) {
-    fprintf(stderr, "malformed entry '%s'\n", line.c_str());
-    return false;
-  }
-  entry.name = fields[0];
-  auto data = split(fields[1], " ");
-  entry.updated_at = 0;
-  if (data.size() == 1) {
-    entry.password = data[0];
-  } else {
-    entry.meta.clear();
-    for (size_t i = 0; i < data.size() - 2; i++) {
-      if (i > 0) {
-        entry.meta += " ";
-      }
-      entry.meta += data[i]; // typically username
-    }
-    try {
-      entry.updated_at = std::stol(data[data.size() - 2]);
-      if (entry.updated_at < 1601877323 || entry.updated_at > 2401877323) {
-        entry.updated_at = 0;
-        throw std::out_of_range("invalid time value");
-      }
-    } catch (std::logic_error &e) {
-      entry.meta += (entry.meta.empty() ? "" : " ") + data[data.size() - 2];
-    }
-    entry.password = data[data.size() - 1];
-  }
-  return true;
-}
-
-std::string dump_entry(const struct ent &entry) {
+std::string dump_entry(const Storage::Entry &entry) {
   std::string s(entry.name);
   return s + ": " + (entry.meta.empty() ? "" : entry.meta + " ") +
          (entry.updated_at ? std::to_string(entry.updated_at) + " " : "") +
          entry.password + "\n";
-}
-
-std::vector<std::string> split(const std::string &s,
-                               const std::string &delimiter) {
-  size_t start = 0;
-  size_t end = 0;
-  std::string token;
-  std::vector<std::string> rv;
-  while ((end = s.find(delimiter, start)) != std::string::npos) {
-    token = trim(s.substr(start, end - start));
-    if (!token.empty()) {
-      rv.push_back(trim(token));
-    }
-    start = end + delimiter.size();
-  }
-  if (start < s.size()) {
-    token = trim(s.substr(start));
-    if (!token.empty()) {
-      rv.push_back(token);
-    }
-  }
-  return rv;
-}
-
-std::string trim(const std::string &s) {
-  auto front = std::find_if_not(
-      s.begin(), s.end(), [](unsigned char c) { return std::isspace(c); });
-  if (front == s.end()) {
-    return "";
-  }
-  return std::string(
-      front,
-      std::find_if_not(s.rbegin(), std::string::const_reverse_iterator(front),
-                       [](unsigned char c) { return std::isspace(c); })
-          .base());
 }
 
 bool maybe_shutdown_daemon() {
@@ -796,7 +729,7 @@ std::string readpass_fromdaemon() {
 }
 
 std::string readpass(const std::string &prompt) {
-  char key[EVP_MAX_KEY_LENGTH+1] = {0};
+  char key[EVP_MAX_KEY_LENGTH + 1] = {0};
 
   if (readpassphrase(prompt.c_str(), key, sizeof(key), 0) == NULL) {
     bail("failed to read passphrase");
