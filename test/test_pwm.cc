@@ -2,6 +2,7 @@
 #include "utest.h"
 #include <array>
 #include <cstdio>
+#include <random>
 #include <stdlib.h>
 
 using namespace std::string_literals;
@@ -97,9 +98,9 @@ UTEST(PWMTest, verifyEncrypt) {
 
 UTEST(PWMTest, verifyFind) {
   const std::string dat(
-      "dog: one two three\ndog2: fourteen\ndragon:\n"
+      "dog: one two three\ndog2: fourteen\ndragon: monkeydog\n"
       "cat: four 5 6\nmouse: 100..z()\nblonde: 1632857699 passw\n"
-      "tape: mall time 1632857700 passwood\nblorgish: 2Ua02=bar");
+      "tape: mall time 1632857700 passwood\nblorgish: 2Ua02=bar\n");
 
   Storage::Entry e;
 
@@ -234,9 +235,56 @@ UTEST(PWMTest, verifyDeserializeOld) {
   EXPECT_EQ(e6, t);
 }
 
+std::vector<Storage::Entry> deserializeAll(const std::string &s) {
+  std::vector<Storage::Entry> v;
+  std::string_view sv{s};
+  for (Storage::Entry ent; Storage::deserialize(sv, ent);) {
+    v.push_back(ent);
+    ent.clear();
+  }
+  return v;
+}
+
+std::string serializeAll(const std::vector<Storage::Entry> &entries) {
+  std::string dat;
+  for (const auto &ent : entries) {
+    dat += Storage::serialize(ent);
+  }
+  return dat;
+}
+
 UTEST(PWMTest, verifyUpdate) {
-  std::string dat(
-      "dog: one 5 two\ncatdog: four thumb 5te\nmouse: 942 100..z()\n");
+  std::vector<Storage::Entry> entries{
+      {
+          .name = "catdog",
+          .updated_at = 0,
+          .password = ":313*(@)(!+;^^two",
+          .meta = "one two three\nfour\tfivesix..\0seven",
+      },
+      {
+          .name = "dog",
+          .updated_at = 5,
+          .password = "two",
+          .meta = "one",
+      },
+      {
+          .name = "mouse",
+          .updated_at = 1756951965,
+          .password = "\x84\xca"s
+                      "8|u\xe0~\x81+\xf9\x05OUf#\x8ch\xc0\x05\xe4gd\xbd/"s
+                      "\xb1\x9c\xc6"s
+                      "7\xe0\xba"s,
+          .meta = ")\x95\xbd\xda\x08\x02Y\x0b0\x9c"s,
+      },
+      {
+          .name = "mouse:213()*1.21@1ßronöëtü:-__",
+          .updated_at = 1756951965,
+          .password = ":313*(@)(!+;^^two",
+          .meta = "",
+      },
+  };
+
+  std::string dat{serializeAll(entries)};
   Storage::Entry e;
   std::string newdat;
 
@@ -247,8 +295,13 @@ UTEST(PWMTest, verifyUpdate) {
   e.updated_at = 44;
 
   EXPECT_TRUE(update(dat, e, newdat, false));
-  EXPECT_EQ("dog: one 5 two\ncatdog: duck pig 44 REG\nmouse: 942 100..z()\n",
-            newdat);
+  auto cur = deserializeAll(newdat);
+
+  EXPECT_EQ(entries.size(), cur.size());
+  EXPECT_EQ(e, cur[0]);
+  EXPECT_EQ(entries[1], cur[1]);
+  EXPECT_EQ(entries[2], cur[2]);
+  EXPECT_EQ(entries[3], cur[3]);
 
   // incomplete update
   e.clear();
@@ -257,8 +310,14 @@ UTEST(PWMTest, verifyUpdate) {
   e.updated_at = 48;
 
   EXPECT_TRUE(update(dat, e, newdat, false));
-  EXPECT_EQ("dog: one 5 two\ncatdog: four thumb 48 REG\nmouse: 942 100..z()\n",
-            newdat);
+  cur = deserializeAll(newdat);
+  EXPECT_EQ(entries.size(), cur.size());
+  EXPECT_EQ(entries[1], cur[1]);
+  EXPECT_EQ(entries[0].name, cur[0].name);
+  EXPECT_EQ(e.updated_at, cur[0].updated_at);
+  EXPECT_EQ(entries[0].meta, cur[0].meta);
+  EXPECT_EQ(entries[2], cur[2]);
+  EXPECT_EQ(entries[3], cur[3]);
 
   // insert
   e.clear();
@@ -268,24 +327,32 @@ UTEST(PWMTest, verifyUpdate) {
   e.updated_at = 55;
 
   EXPECT_TRUE(update(dat, e, newdat, false));
-  EXPECT_EQ("dog: one 5 two\ncatdog: four thumb 5te\nmouse: 942 100..z()\npig: "
-            "bore 55 "
-            "SNaPz2\n",
-            newdat);
+  cur = deserializeAll(newdat);
+  EXPECT_EQ(entries.size() + 1, cur.size());
+  EXPECT_EQ(entries[0], cur[0]);
+  EXPECT_EQ(entries[1], cur[1]);
+  EXPECT_EQ(entries[2], cur[2]);
+  EXPECT_EQ(entries[3], cur[3]);
 
   // conflict but exact match
   e.clear();
-  dat = "cool: snapsids biItNYeU7B4.V8-\ncoolman: vstb'76t8H<sFUB\n";
-  e.name = "cool";
-  e.password = "newpass";
-  e.updated_at = 56;
+  e.name = "mouse";
+  e.password = "newpass\x11y5\xc2G"s;
+  e.updated_at = 1757015251;
   EXPECT_TRUE(update(dat, e, newdat, false));
-  EXPECT_EQ(newdat, "cool: snapsids 56 newpass\ncoolman: vstb'76t8H<sFUB\n");
+  cur = deserializeAll(newdat);
+  EXPECT_EQ(entries.size(), cur.size());
+  EXPECT_EQ(entries[0], cur[0]);
+  EXPECT_EQ(entries[1], cur[1]);
+  EXPECT_EQ(entries[3], cur[3]);
+  EXPECT_EQ(entries[2].name, cur[2].name);
+  EXPECT_EQ(entries[2].meta, cur[2].meta);
+  EXPECT_EQ(e.updated_at, cur[2].updated_at);
+  EXPECT_EQ(e.password, cur[2].password);
 
   // conflict but no exact match
   e.clear();
-  dat = "cool: snapsids biItNYeU7B4.V8-\ncoolman: vstb'76t8H<sFUB\n";
-  e.name = "coo";
+  e.name = "mous";
   e.updated_at = 78;
   EXPECT_FALSE(update(dat, e, newdat, false));
 }
@@ -306,17 +373,42 @@ UTEST(PWMTest, verifyRandomStr) {
 }
 
 UTEST(PWMTest, verifySortData) {
-  std::string dat("dog: one two\ncatdog: four thumb 5te\nmouse: 100..z()\ncat: "
-                  "foobar baz\n");
-  EXPECT_EQ("cat: foobar baz\ncatdog: four thumb 5te\ndog: one two\nmouse: "
-            "100..z()\n",
-            sort_data(dat));
+  std::vector<Storage::Entry> entries{
+      {
+          .name = "catdog",
+          .updated_at = 0,
+          .password = ":313*(@)(!+;^^two",
+          .meta = "one two three\nfour\tfivesix..\0seven",
+      },
+      {
+          .name = "dog",
+          .updated_at = 5,
+          .password = "two",
+          .meta = "one",
+      },
+      {
+          .name = "mouse",
+          .updated_at = 1756951965,
+          .password = "\x84\xca"s
+                      "8|u\xe0~\x81+\xf9\x05OUf#\x8ch\xc0\x05\xe4gd\xbd/"s
+                      "\xb1\x9c\xc6"s
+                      "7\xe0\xba"s,
+          .meta = ")\x95\xbd\xda\x08\x02Y\x0b0\x9c"s,
+      },
+      {
+          .name = "mouse:213()*1.21@1ßronöëtü:-__",
+          .updated_at = 1756951965,
+          .password = ":313*(@)(!+;^^two",
+          .meta = "",
+      },
+  };
+  std::string dat{serializeAll(entries)};
+  std::random_device rd;
+  std::mt19937 gen{rd()};
+  std::shuffle(entries.begin(), entries.end(), gen);
+  std::string shufdat{serializeAll(entries)};
 
-  dat = "dog: foo bar\n"
-        "dog1: doo zar\n"
-        "dog2: doo zar\n";
-
-  EXPECT_EQ(sort_data(dat), dat);
+  EXPECT_EQ(sort_data(shufdat), dat);
 }
 
 #define TEST_STORE "/tmp/pwmtest"

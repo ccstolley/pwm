@@ -56,7 +56,9 @@ public:
     }
   };
 
-  Storage(const std::string &data) : _data(data) {}
+  Storage(const std::string &data) : _data(data) {
+    _old_style = !_data.empty() && _data.find('\0') == _data.npos;
+  }
 
   // Serialize by encoding the length (network order, msb first) in 2 bytes
   // (uint16_t), then dumping length bytes, then another length byte pair and so
@@ -65,6 +67,8 @@ public:
   // '5' '6' '3' '1' '1' '5' '9' '4' 0x0 0x3 'c' 'a' 't' 0x0 0x0
   std::string static serialize(const Entry &ent) {
     std::ostringstream ss;
+    assert(!ent.name.empty());
+    assert(!ent.password.empty());
     encodeField(ss, ent.name);
     encodeField(ss, std::to_string(ent.updated_at));
     encodeField(ss, ent.password);
@@ -101,8 +105,12 @@ public:
     return true;
   }
 
-  bool next(Entry &ent) { return deserialize(_data, ent); }
+  bool next(Entry &ent) {
+    ent.clear();
+    return (_old_style) ? deserialize_old(_data, ent) : deserialize(_data, ent);
+  }
 
+// ==== BEGIN OLD PARSING CODE ====
   std::string static trim(const std::string &s) {
     auto front = std::find_if_not(
         s.begin(), s.end(), [](unsigned char c) { return std::isspace(c); });
@@ -171,14 +179,21 @@ public:
   }
 
   bool static deserialize_old(std::string_view &raw, Entry &ent) {
-    auto eor = raw.find('\n');
-    if (eor == raw.npos) {
-      return false;
+    while (true) {
+      auto eor = raw.find('\n');
+      if (eor == raw.npos) {
+        return false;
+      }
+      std::string line{raw.substr(0, eor)};
+      raw.remove_prefix(eor + 1);
+      if (parse_entry(line, ent)) {
+        return true;
+      }
+      // ignore malformed entries
     }
-    std::string line{raw.substr(0, eor)};
-    raw.remove_prefix(eor + 1);
-    return parse_entry(line, ent);
   }
+
+// ==== END OLD PARSING CODE ====
 
 private:
   bool static decodeField(std::string_view &raw, std::string &field) {
@@ -204,13 +219,14 @@ private:
   }
 
   void static encodeField(std::ostringstream &ss, const std::string &str) {
+    assert(!str.empty());
     uint16_t length = htons(str.size());
-    assert(length != 0);
     ss.write(reinterpret_cast<char *>(&length), sizeof(uint16_t));
     ss.write(str.data(), str.size());
   }
 
   std::string_view _data;
+  bool _old_style = false;
 };
 
 static bool save_backup(const std::string &filename);
@@ -269,8 +285,6 @@ struct cmd_flags {
   bool read_only = false;
   bool update = false;
 
-  bool validate_name() { return name.find(":") == name.npos; }
-  bool validate_meta() { return meta.find(":") == meta.npos; }
   bool validate_read_only() { return !read_only || !uses_writeops(); }
   bool validate_options() { return (update + dump + remove + chpass) <= 1; }
   bool validate_search() { return !name.empty() || dump || chpass; }

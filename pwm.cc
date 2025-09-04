@@ -277,14 +277,6 @@ struct cmd_flags get_flags(int argc, char *const *argv) {
     f.meta += args[i];
   }
 
-  // : is a field delim, so don't allow it in metadata
-  if (!f.validate_meta()) {
-    bail("Metadata cannot contain ':' characters.");
-  }
-  if (!f.validate_name()) {
-    bail("Name cannot contain ':' characters.");
-  }
-
   if (!f.validate_read_only()) {
     bail("Write operations are disabled.");
   }
@@ -467,6 +459,8 @@ bool handle_update(const struct cmd_flags &f, Storage::Entry &entry) {
   if (!init_new && !save_backup(f.store_path)) {
     bail("failed to save backup. aborting.");
   }
+
+  newdata = sort_data(newdata);
   if (!encrypt(newdata, key, data)) {
     bail("re-encrypt failed! backup saved.");
   }
@@ -521,25 +515,24 @@ int main(int argc, char **argv) {
 #endif // TESTING
 
 bool dump(const std::string &data) {
-  std::stringstream linestream{data};
-  for (std::string line; std::getline(linestream, line);) {
-    fprintf(stderr, "%s\n", line.c_str());
+  Storage sto{data};
+
+  for (Storage::Entry ent; sto.next(ent);) {
+    fprintf(stderr, "%s\n", ent.to_string().c_str());
   }
   return true;
 }
 
 bool update(const std::string &data, const Storage::Entry &newent,
             std::string &revised, bool remove) {
-  std::stringstream linestream{data};
-  std::stringstream editstream{};
-  bool found = false;
+  Storage sto{data};
+  std::ostringstream editstream{};
+  bool already_found = false;
   bool exact = false;
 
-  for (std::string line; std::getline(linestream, line);) {
-    Storage::Entry entry;
-    if (newent.name == line.substr(0, newent.name.size()) &&
-        Storage::parse_entry(line, entry)) {
-      if (found) {
+  for (Storage::Entry entry; sto.next(entry);) {
+    if (newent.name == entry.name.substr(0, newent.name.size())) {
+      if (already_found) {
         if (!exact) {
           fprintf(stderr, "error: '%s' also matches '%s'.\n",
                   entry.name.c_str(), newent.name.c_str());
@@ -549,29 +542,30 @@ bool update(const std::string &data, const Storage::Entry &newent,
         fprintf(stderr, "[old] %s: %s\n", entry.name.c_str(),
                 entry.password.c_str());
         exact = newent.name == entry.name;
-        found = true;
+        already_found = true;
         if (remove) {
           continue;
         }
         if (!newent.meta.empty()) {
           entry.meta = newent.meta;
         }
-        entry.password = newent.password;
+        if (!newent.password.empty()) {
+          entry.password = newent.password;
+        }
         entry.updated_at = newent.updated_at;
-        std::string s{dump_entry(entry)};
-        editstream.write(s.c_str(), s.size());
-        continue;
       }
     }
-    editstream.write((line + "\n").c_str(), line.size() + 1);
+    std::string s{Storage::serialize(entry)};
+    editstream.write(s.data(), s.size());
   }
-  if (!found) {
+
+  if (!already_found) {
     if (remove) {
       return false;
     }
     // add
-    std::string s{dump_entry(newent)};
-    editstream.write(s.c_str(), s.size());
+    std::string s{Storage::serialize(newent)};
+    editstream.write(s.data(), s.size());
   }
   revised = editstream.str();
   return true;
@@ -613,20 +607,22 @@ std::string read_file(const std::string &filename) {
 }
 
 std::string sort_data(const std::string &data) {
-  std::vector<std::string> datav;
-  std::stringstream linestream{data};
+  std::vector<Storage::Entry> datav;
 
-  for (std::string line; std::getline(linestream, line);) {
-    datav.push_back(line);
+  Storage sto{data};
+  for (Storage::Entry ent; sto.next(ent);) {
+    datav.push_back(ent);
   }
   std::sort(datav.begin(), datav.end(),
-            [](const std::string &a, const std::string &b) {
-              return a.substr(0, a.find(':')) < b.substr(0, b.find(':'));
+            [](const Storage::Entry &a, const Storage::Entry &b) {
+              return a.name < b.name;
             });
 
   std::ostringstream outs;
-  std::copy(datav.begin(), datav.end(),
-            std::ostream_iterator<std::string>(outs, "\n"));
+  for (const auto &e : datav) {
+    std::string s{Storage::serialize(e)};
+    outs.write(s.data(), s.size());
+  }
   return outs.str();
 }
 
@@ -643,14 +639,12 @@ bool dump_to_file(const std::string &data, const std::string &filename) {
 
 bool search(const std::string &needle, const std::string &haystack,
             Storage::Entry &entry) {
-  std::stringstream linestream{haystack};
   bool found = false;
   bool exact = false;
-  Storage::Entry match;
 
-  for (std::string line; std::getline(linestream, line);) {
-    if (needle != line.substr(0, needle.size()) ||
-        !Storage::parse_entry(line, match)) {
+  Storage sto{haystack};
+  for (Storage::Entry match; sto.next(match);) {
+    if (needle != match.name.substr(0, needle.size())) {
       continue;
     }
     if (found) {
@@ -823,8 +817,6 @@ bool decrypt(const std::string &ciphertext, const std::string &dkeyiv,
   }
 
   plaintext.append(s, 0, sz);
-  plaintext = sort_data(plaintext);
-
   return true;
 }
 
