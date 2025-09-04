@@ -15,23 +15,33 @@ const int PBKDF2_ITER_COUNT = 500000;
   exit(1);
 }
 
-static std::string default_store_path() {
-  const char *home = std::getenv("HOME");
-  if (home == nullptr) {
-    home = "";
+[[nodiscard]] static std::string store_path() {
+  std::string store_path;
+  if (const char *env_store = std::getenv("PWM_STORE")) {
+    store_path = env_store;
+  } else {
+    const char *home = std::getenv("HOME");
+    if (home == nullptr) {
+      home = "";
+    }
+    store_path = home;
+    store_path += "/.pwmstore";
   }
-  std::string path{home};
-  path += "/.pwmstore";
-  return path;
+  return store_path;
 }
 
 static std::string socket_path() {
-  const char *home = std::getenv("HOME");
-  if (home == nullptr) {
-    home = "";
+  const char *sockpath = std::getenv("PWM_SOCKET");
+  if (sockpath != nullptr) {
+    return sockpath;
   }
-  std::string path{home};
-  path += "/.pwm.sock";
+  std::string path = store_path();
+  std::string basename = path.substr(path.find_last_of("/") + 1);
+  std::string dirname = path.substr(0, path.find_last_of("/"));
+  if (basename[0] != '.') {
+    path = dirname + "/." + basename;
+  }
+  path += ".sock";
   return path;
 }
 
@@ -58,16 +68,6 @@ static std::string socket_path() {
     return std::max(0, atoi(v));
   }
   return 0;
-}
-
-[[nodiscard]] static std::string get_store_path() {
-  std::string store_path;
-  if (const char *env_store = std::getenv("PWM_STORE")) {
-    store_path = env_store;
-  } else {
-    store_path = default_store_path();
-  }
-  return store_path;
 }
 
 static bool socket_is_live(const std::string &path) {
@@ -233,7 +233,7 @@ struct cmd_flags get_flags(int argc, char *const *argv) {
 
   f.linger = linger_duration();
   f.read_only = is_read_only();
-  f.store_path = get_store_path();
+  f.store_path = store_path();
   optind = opterr = 1; // for tests
   std::vector<std::string> args;
 

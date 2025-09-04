@@ -110,7 +110,7 @@ public:
     return (_old_style) ? deserialize_old(_data, ent) : deserialize(_data, ent);
   }
 
-// ==== BEGIN OLD PARSING CODE ====
+  // ==== BEGIN OLD PARSING CODE ====
   std::string static trim(const std::string &s) {
     auto front = std::find_if_not(
         s.begin(), s.end(), [](unsigned char c) { return std::isspace(c); });
@@ -193,7 +193,7 @@ public:
     }
   }
 
-// ==== END OLD PARSING CODE ====
+  // ==== END OLD PARSING CODE ====
 
 private:
   bool static decodeField(std::string_view &raw, std::string &field) {
