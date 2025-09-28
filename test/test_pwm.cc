@@ -10,6 +10,24 @@ using namespace std::string_view_literals;
 
 UTEST_MAIN();
 
+std::vector<Storage::Entry> deserializeAll(const std::string &s) {
+  std::vector<Storage::Entry> v;
+  std::string_view sv{s};
+  for (Storage::Entry ent; Storage::deserialize(sv, ent);) {
+    v.push_back(ent);
+    ent.clear();
+  }
+  return v;
+}
+
+std::string serializeAll(const std::vector<Storage::Entry> &entries) {
+  std::string dat;
+  for (const auto &ent : entries) {
+    dat += Storage::serialize(ent);
+  }
+  return dat;
+}
+
 UTEST(PWMTest, verifyDumpToFile) {
   std::string filename("atest.tmp");
   std::string data1("a ton\0of stuff to do\12\n\t\r\n");
@@ -97,10 +115,45 @@ UTEST(PWMTest, verifyEncrypt) {
 }
 
 UTEST(PWMTest, verifyFind) {
-  const std::string dat(
-      "dog: one two three\ndog2: fourteen\ndragon: monkeydog\n"
-      "cat: four 5 6\nmouse: 100..z()\nblonde: 1632857699 passw\n"
-      "tape: mall time 1632857700 passwood\nblorgish: 2Ua02=bar\n");
+  std::vector<Storage::Entry> entries{
+      {
+          .name = "cat",
+          .updated_at = 1757376741,
+          .password = "four",
+          .meta = "ë",
+      },
+      {
+          .name = "dog",
+          .updated_at = 0,
+          .password = "three",
+          .meta = "one two",
+      },
+      {
+          .name = "dog2",
+          .updated_at = 0,
+          .password = "fourteen",
+          .meta = "",
+      },
+      {
+          .name = "fog2",
+          .updated_at = 0,
+          .password = "monkeydog",
+          .meta = "",
+      },
+      {
+          .name = "mouse",
+          .updated_at = 1747376741,
+          .password = "100..z()",
+          .meta = "",
+      },
+      {
+          .name = "Brown",
+          .updated_at = 1747376841,
+          .password = "( )",
+          .meta = ":",
+      },
+  };
+  auto dat = serializeAll(entries);
 
   Storage::Entry e;
 
@@ -114,15 +167,15 @@ UTEST(PWMTest, verifyFind) {
   e.clear();
   EXPECT_TRUE(search("cat", dat, e));
   EXPECT_EQ(e.name, "cat");
-  EXPECT_EQ(e.meta, "four 5");
-  EXPECT_EQ(0, e.updated_at);
-  EXPECT_EQ(e.password, "6");
+  EXPECT_EQ(e.meta, "ë");
+  EXPECT_EQ(1757376741, e.updated_at);
+  EXPECT_EQ(e.password, "four");
 
   e.clear();
   EXPECT_TRUE(search("mouse", dat, e));
   EXPECT_EQ(e.name, "mouse");
   EXPECT_EQ(e.meta, "");
-  EXPECT_EQ(e.updated_at, 0);
+  EXPECT_EQ(e.updated_at, 1747376741);
   EXPECT_EQ(e.password, "100..z()");
 
   e.clear();
@@ -133,25 +186,18 @@ UTEST(PWMTest, verifyFind) {
   EXPECT_FALSE(search("lion", ":", e));
 
   e.clear();
-  EXPECT_TRUE(search("blond", dat, e));
-  EXPECT_EQ(e.name, "blonde");
-  EXPECT_EQ(e.meta, "");
-  EXPECT_EQ(1632857699, e.updated_at);
-  EXPECT_EQ(e.password, "passw");
+  EXPECT_TRUE(search("Brow", dat, e));
+  EXPECT_EQ(e.name, "Brown");
+  EXPECT_EQ(e.meta, ":");
+  EXPECT_EQ(1747376841, e.updated_at);
+  EXPECT_EQ(e.password, "( )");
 
   e.clear();
-  EXPECT_TRUE(search("tape", dat, e));
-  EXPECT_EQ(e.name, "tape");
-  EXPECT_EQ(e.meta, "mall time");
-  EXPECT_EQ(1632857700, e.updated_at);
-  EXPECT_EQ(e.password, "passwood");
-
-  e.clear();
-  EXPECT_TRUE(search("blorg", dat, e));
-  EXPECT_EQ(e.name, "blorgish");
+  EXPECT_TRUE(search("m", dat, e));
+  EXPECT_EQ(e.name, "mouse");
   EXPECT_EQ(e.meta, "");
-  EXPECT_EQ(0, e.updated_at);
-  EXPECT_EQ(e.password, "2Ua02=bar");
+  EXPECT_EQ(1747376741, e.updated_at);
+  EXPECT_EQ(e.password, "100..z()");
 }
 
 UTEST(PWMTest, verifyDumpEntry) {
@@ -233,24 +279,6 @@ UTEST(PWMTest, verifyDeserializeOld) {
   EXPECT_EQ(e5, t);
   EXPECT_TRUE(Storage::deserialize_old(want, t));
   EXPECT_EQ(e6, t);
-}
-
-std::vector<Storage::Entry> deserializeAll(const std::string &s) {
-  std::vector<Storage::Entry> v;
-  std::string_view sv{s};
-  for (Storage::Entry ent; Storage::deserialize(sv, ent);) {
-    v.push_back(ent);
-    ent.clear();
-  }
-  return v;
-}
-
-std::string serializeAll(const std::vector<Storage::Entry> &entries) {
-  std::string dat;
-  for (const auto &ent : entries) {
-    dat += Storage::serialize(ent);
-  }
-  return dat;
 }
 
 UTEST(PWMTest, verifyUpdate) {
