@@ -90,6 +90,21 @@ static bool socket_is_live(const std::string &path) {
   return false;
 }
 
+static bool get_sock_ident(int sock, std::pair<uid_t, gid_t> &id) {
+#ifdef __OpenBSD__
+  return 0 == getpeereid(sock, &id.first, &id.second);
+#else
+  struct ucred c;
+  unsigned int len = sizeof(struct ucred);
+  if (0 == getsockopt(sock, SOL_SOCKET, SO_PEERCRED, &c, &len)) {
+    id.first = c.uid;
+    id.second = c.gid;
+    return true;
+  }
+  return false;
+#endif
+}
+
 static bool signaled = false;
 static void set_signaled(__attribute__((unused)) int a) { signaled = true; }
 
@@ -195,6 +210,18 @@ static void linger(const std::string_view key, int timeout) {
     int csock = accept(sock, (struct sockaddr *)&addr, &len);
     if (csock == -1) {
       fprintf(stderr, "accept() failed %d %s\n", csock, strerror(errno));
+      break;
+    }
+    if (std::pair<uid_t, gid_t> p; get_sock_ident(csock, p)) {
+      if (geteuid() != p.first || getegid() != p.second) {
+        fprintf(stderr, "peer uid/gid doesn't match with daemon [u:%d g:%d]\n",
+                p.first, p.second);
+        close(csock);
+        break;
+      }
+    } else {
+      fprintf(stderr, "get_sock_ident() failed %d %s\n", csock,
+              strerror(errno));
       break;
     }
     char buf[32] = {0};
