@@ -205,7 +205,7 @@ static void linger(const std::string_view key, int timeout) {
       continue;
     }
 
-    ssize_t sz = read(csock, &buf, sizeof(buf));
+    ssize_t sz = read(csock, &buf, sizeof(buf) - 1);
     if (sz < 1) {
       close(csock);
       continue;
