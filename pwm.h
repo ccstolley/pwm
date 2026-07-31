@@ -2,6 +2,7 @@
 #include <arpa/inet.h>
 #include <cassert>
 #include <csignal>
+#include <cstdint>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
@@ -12,6 +13,7 @@
 #include <openssl/conf.h>
 #include <openssl/err.h>
 #include <openssl/evp.h>
+#include <openssl/hmac.h>
 #include <poll.h>
 #include <readpassphrase.h>
 #include <sstream>
@@ -56,9 +58,7 @@ public:
     }
   };
 
-  Storage(const std::string &data) : _data(data) {
-    _old_style = !_data.empty() && _data.find('\0') == _data.npos;
-  }
+  Storage(const std::string &data) : _data(data) {}
 
   // Serialize by encoding the length (network order, msb first) in 2 bytes
   // (uint16_t), then dumping length bytes, then another length byte pair and so
@@ -107,93 +107,8 @@ public:
 
   bool next(Entry &ent) {
     ent.clear();
-    return (_old_style) ? deserialize_old(_data, ent) : deserialize(_data, ent);
+    return deserialize(_data, ent);
   }
-
-  // ==== BEGIN OLD PARSING CODE ====
-  std::string static trim(const std::string &s) {
-    auto front = std::find_if_not(
-        s.begin(), s.end(), [](unsigned char c) { return std::isspace(c); });
-    if (front == s.end()) {
-      return "";
-    }
-    return std::string(
-        front,
-        std::find_if_not(s.rbegin(), std::string::const_reverse_iterator(front),
-                         [](unsigned char c) { return std::isspace(c); })
-            .base());
-  }
-
-  std::vector<std::string> static split(const std::string &s,
-                                        const std::string &delimiter) {
-    size_t start = 0;
-    size_t end = 0;
-    std::string token;
-    std::vector<std::string> rv;
-    while ((end = s.find(delimiter, start)) != std::string::npos) {
-      token = trim(s.substr(start, end - start));
-      if (!token.empty()) {
-        rv.push_back(trim(token));
-      }
-      start = end + delimiter.size();
-    }
-    if (start < s.size()) {
-      token = trim(s.substr(start));
-      if (!token.empty()) {
-        rv.push_back(token);
-      }
-    }
-    return rv;
-  }
-  bool static parse_entry(const std::string &line, Storage::Entry &entry) {
-    auto fields = split(line, ":");
-    if (fields.size() < 2) {
-      fprintf(stderr, "malformed entry '%s'\n", line.c_str());
-      return false;
-    }
-    entry.name = fields[0];
-    auto data = split(fields[1], " ");
-    entry.updated_at = 0;
-    if (data.size() == 1) {
-      entry.password = data[0];
-    } else {
-      entry.meta.clear();
-      for (size_t i = 0; i < data.size() - 2; i++) {
-        if (i > 0) {
-          entry.meta += " ";
-        }
-        entry.meta += data[i]; // typically username
-      }
-      try {
-        entry.updated_at = std::stol(data[data.size() - 2]);
-        if (entry.updated_at < 1601877323 || entry.updated_at > 2401877323) {
-          entry.updated_at = 0;
-          throw std::out_of_range("invalid time value");
-        }
-      } catch (std::logic_error &e) {
-        entry.meta += (entry.meta.empty() ? "" : " ") + data[data.size() - 2];
-      }
-      entry.password = data[data.size() - 1];
-    }
-    return true;
-  }
-
-  bool static deserialize_old(std::string_view &raw, Entry &ent) {
-    while (true) {
-      auto eor = raw.find('\n');
-      if (eor == raw.npos) {
-        return false;
-      }
-      std::string line{raw.substr(0, eor)};
-      raw.remove_prefix(eor + 1);
-      if (parse_entry(line, ent)) {
-        return true;
-      }
-      // ignore malformed entries
-    }
-  }
-
-  // ==== END OLD PARSING CODE ====
 
 private:
   bool static decodeField(std::string_view &raw, std::string &field) {
@@ -226,13 +141,93 @@ private:
   }
 
   std::string_view _data;
-  bool _old_style = false;
+};
+
+/*
+ * Store layout, version 1 ("PWMKEY01").
+ *
+ * A random 32 byte master key (MK) encrypts the store body. The header holds a
+ * list of key slots, each an independently wrapped copy of MK, so that any one
+ * enrolled factor is sufficient to open the store (OR semantics, like LUKS
+ * keyslots). Exactly one password slot is always present; zero or more FIDO2
+ * slots may be enrolled alongside it.
+ *
+ *   magic        8   "PWMKEY01"
+ *   version      1   STORE_VERSION
+ *   fido_salt   32   store wide hmac-secret salt (see note below)
+ *   slot_count   1
+ *   slots      var   slot_count serialized slots
+ *   body_nonce  12
+ *   body_tag    16
+ *   body       var   AES-256-GCM(MK), AAD = every header byte before body_nonce
+ *
+ * Each slot serializes as:
+ *
+ *   type         1   SLOT_PASSWORD or SLOT_FIDO2
+ *   payload_len  2   length of everything below
+ *   wrap_nonce  12
+ *   wrap_tag    16
+ *   wrapped_mk  32   AES-256-GCM(KEK) of MK, AAD = type byte + extra
+ *   extra      var   SLOT_PASSWORD: salt[32] iter[4]
+ *                    SLOT_FIDO2:    cred_id_len[2] cred_id label_len[2] label
+ *
+ * The body's AAD covers the whole slot table, so stripping, reordering or
+ * splicing in slots fails the body tag rather than silently downgrading which
+ * factors the store will accept.
+ *
+ * fido_salt is store wide rather than per slot on purpose. A FIDO2 assertion
+ * fixes its hmac salt before the call, so per slot salts would make it
+ * impossible to satisfy several enrolled credentials with a single assertion
+ * (and therefore a single touch). One shared salt still yields a distinct
+ * secret per credential, because the authenticator mixes in a per-credential
+ * random value.
+ *
+ * INVARIANT: every wrap writes a freshly generated random nonce, with no
+ * exceptions. Reusing a (KEK, nonce) pair across different plaintexts leaks the
+ * XOR of both master keys and the GCM authentication subkey. Reusing a slot's
+ * *salt* is fine and is in fact required: rotating MK has to wrap the new MK
+ * under each surviving slot's existing KEK, and a FIDO2 KEK can only be
+ * recomputed with that token in hand.
+ */
+inline constexpr std::string_view MAGIC_V1{"PWMKEY01"};
+inline constexpr uint8_t STORE_VERSION = 1;
+inline constexpr uint8_t SLOT_PASSWORD = 1;
+inline constexpr uint8_t SLOT_FIDO2 = 2;
+inline constexpr int MK_LENGTH = 32;
+inline constexpr int GCM_NONCE_LENGTH = 12;
+inline constexpr int FIDO_SALT_LENGTH = 32;
+inline constexpr int FIDO_SECRET_LENGTH = 32;
+inline constexpr size_t MAX_SLOTS = 32;
+inline constexpr size_t MAX_LABEL = 128;
+inline constexpr std::string_view FIDO_KEK_INFO{"pwm fido2 slot v1"};
+inline constexpr std::string_view FIDO_RP_ID{"pwm"};
+
+struct KeySlot {
+  uint8_t type = SLOT_PASSWORD;
+  std::string wrap_nonce;
+  std::string wrap_tag;
+  std::string wrapped_mk;
+  // SLOT_PASSWORD
+  std::string salt;
+  uint32_t iter = 0;
+  // SLOT_FIDO2
+  std::string cred_id;
+  std::string label;
+
+  bool is_password() const { return type == SLOT_PASSWORD; }
+  bool is_fido() const { return type == SLOT_FIDO2; }
+  std::string describe(size_t idx) const;
+};
+
+struct StoreHeader {
+  std::string fido_salt;
+  std::vector<KeySlot> slots;
+  std::string aad;     // header bytes bound into the body tag
+  size_t body_off = 0; // offset of body_nonce within the ciphertext
 };
 
 static bool save_backup(const std::string &filename);
 static std::string readpass(const std::string &prompt);
-static std::string readpass_fromdaemon();
-static bool maybe_shutdown_daemon();
 static std::pair<uid_t, gid_t> get_sock_ident(int sock);
 
 bool dump_to_file(const std::string &data, const std::string &filename);
@@ -242,6 +237,44 @@ bool encrypt(const std::string &plaintext, const std::string &key,
              std::string &ciphertext);
 bool decrypt(const std::string &ciphertext, const std::string &dkeyiv,
              std::string &plaintext);
+
+/* v1 keyslot store */
+bool is_v1_store(const std::string &ciphertext);
+bool parse_header(const std::string &ciphertext, StoreHeader &hdr);
+std::string serialize_header(const StoreHeader &hdr);
+bool password_kek(const std::string &password, const std::string &salt,
+                  uint32_t iter, std::string &kek);
+bool fido_kek(const std::string &secret, const std::string &fido_salt,
+              std::string &kek);
+bool wrap_mk(const std::string &kek, const std::string &mk, KeySlot &slot);
+bool unwrap_mk(const std::string &kek, const KeySlot &slot, std::string &mk);
+bool make_password_slot(const std::string &password, const std::string &mk,
+                        KeySlot &slot);
+bool encrypt_store(const std::string &plaintext, const StoreHeader &hdr,
+                   const std::string &mk, std::string &ciphertext);
+bool decrypt_store(const std::string &ciphertext, const std::string &mk,
+                   std::string &plaintext);
+bool unlock_store(const std::string &ciphertext, const struct CmdFlags &f,
+                  std::string &mk, StoreHeader &hdr);
+bool rotate_mk(const std::string &plaintext, const std::string &new_password,
+               StoreHeader &hdr, std::string &mk, std::string &ciphertext,
+               bool drop_missing = false);
+bool write_store(const std::string &plaintext, StoreHeader &hdr,
+                 const std::string &mk, const std::string &path);
+bool handle_enroll(const struct CmdFlags &f);
+bool handle_slots(const struct CmdFlags &f);
+bool handle_deauth(const struct CmdFlags &f);
+
+/* FIDO2 token access; stubs that fail cleanly when built without libfido2 */
+bool fido_available();
+bool fido_present();
+bool fido_get_secret(const std::vector<KeySlot> &slots,
+                     const std::string &fido_salt, std::string &secret,
+                     std::string &cred_id);
+bool fido_secret_for_cred(const std::string &cred_id,
+                          const std::string &fido_salt, std::string &secret);
+bool fido_enroll(const std::string &fido_salt, std::string &cred_id,
+                 std::string &secret);
 std::string read_file(const std::string &filename);
 bool search(const std::string &needle, const std::string &haystack,
             Storage::Entry &entry);
@@ -250,13 +283,14 @@ bool update(const std::string &data, const Storage::Entry &newent,
             std::string &revised, bool remove);
 std::string dump_entry(const Storage::Entry &entry);
 std::string random_str(size_t sz);
+std::string random_bytes(size_t sz);
 std::string sort_data(const std::string &data);
 void check_perms(const std::string &path);
-struct cmd_flags get_flags(int argc, char *const *argv);
-bool handle_search(const struct cmd_flags &f, Storage::Entry &entry);
-bool handle_dump(const struct cmd_flags &f);
-bool handle_chpass(const struct cmd_flags &f);
-bool handle_update(const struct cmd_flags &f, Storage::Entry &entry);
+struct CmdFlags get_flags(int argc, char *const *argv);
+bool handle_search(const struct CmdFlags &f, Storage::Entry &entry);
+bool handle_dump(const struct CmdFlags &f);
+bool handle_chpass(const struct CmdFlags &f);
+bool handle_update(const struct CmdFlags &f, Storage::Entry &entry);
 
 struct EvpCipherContext {
   EVP_CIPHER_CTX *get() const { return ctx_; }
@@ -271,28 +305,40 @@ private:
   EVP_CIPHER_CTX *ctx_;
 };
 
-struct cmd_flags {
+struct CmdFlags {
   std::string name;
   std::string meta;
   std::string store_path;
   std::string key;      // for testing only
   std::string newkey;   // for testing only
   std::string password; // for testing only
+  std::string label;    // label for a newly enrolled security key
   bool chpass = false;
   bool readpass = false;
   bool dump = false;
-  int linger = 0; // 0 means disabled
   bool remove = false;
   bool read_only = false;
   bool update = false;
+  bool enroll = false;         // -e  enroll a FIDO2 security key
+  bool slots = false;          // -E  list enrolled key slots
+  int deauth = -1;             // -R  remove key slot by index
+  bool force_password = false; // -P  ignore any attached token
+  bool drop_missing = false; // -F  re-key without a key that cannot be reached
 
   bool validate_read_only() { return !read_only || !uses_writeops(); }
-  bool validate_options() { return (update + dump + remove + chpass) <= 1; }
-  bool validate_search() { return !name.empty() || dump || chpass; }
+  bool validate_options() {
+    return (update + dump + remove + chpass + enroll + slots + (deauth >= 0)) <=
+           1;
+  }
+  bool validate_search() {
+    return !name.empty() || dump || chpass || enroll || slots || deauth >= 0;
+  }
   bool validate_store_path() { return !store_path.empty(); }
 
-  bool uses_writeops() const { return remove || update || chpass; }
-  bool is_search() const { return !uses_writeops() && !dump; }
+  bool uses_writeops() const {
+    return remove || update || chpass || enroll || deauth >= 0;
+  }
+  bool is_search() const { return !uses_writeops() && !dump && !slots; }
 
   std::string to_string() const {
     std::string s;
@@ -301,10 +347,14 @@ struct cmd_flags {
     s += "store_path: " + store_path + "\n";
     s += "chpass: " + std::to_string(chpass) + "\n";
     s += "dump: " + std::to_string(dump) + "\n";
-    s += "linger: " + std::to_string(linger) + "\n";
     s += "remove: " + std::to_string(remove) + "\n";
     s += "read_only: " + std::to_string(read_only) + "\n";
     s += "update: " + std::to_string(update) + "\n";
+    s += "enroll: " + std::to_string(enroll) + "\n";
+    s += "slots: " + std::to_string(slots) + "\n";
+    s += "deauth: " + std::to_string(deauth) + "\n";
+    s += "force_password: " + std::to_string(force_password) + "\n";
+    s += "drop_missing: " + std::to_string(drop_missing) + "\n";
     s += "is_search: " + std::to_string(is_search()) + "\n";
     s += "uses_writeops: " + std::to_string(uses_writeops()) + "\n";
     return s;
