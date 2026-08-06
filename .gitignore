@@ -4,3 +4,7 @@ test_pwm
 *.core
 *.tmp
 *.swp
+Makefile
+config.log
+conftest
+conftest.cc

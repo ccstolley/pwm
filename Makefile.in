@@ -1,0 +1,104 @@
+#
+# Makefile.in - template processed by ./configure.
+#
+# Written for POSIX make: it works with OpenBSD make and GNU make alike, so
+# there are no pattern rules, no conditionals and no built-in suffix rules.
+#
+
+srcdir =	@srcdir@
+
+prefix =	@prefix@
+exec_prefix =	@exec_prefix@
+bindir =	@bindir@
+mandir =	@mandir@
+DESTDIR =
+
+CXX =		@CXX@
+CXXFLAGS =	@CXXFLAGS@
+STDFLAG =	@STDFLAG@
+WARNFLAGS =	@WARNFLAGS@
+CPPFLAGS =	@CPPFLAGS@
+LDFLAGS =	@LDFLAGS@
+LIBS =		@LIBS@
+
+FIDO2_DEF =	@FIDO2_DEF@
+FIDO_LIBS =	@FIDO_LIBS@
+
+PORTABLE_OBJS =	@PORTABLE_OBJS@
+PORTABLE_INC =	@PORTABLE_INC@
+
+INSTALL =	@INSTALL@
+CLANG_FORMAT =	@CLANG_FORMAT@
+
+# @TESTS@ is empty when configured with --disable-tests.
+TESTS =		@TESTS@
+
+ALL_CPPFLAGS =	-I $(srcdir) $(PORTABLE_INC) $(CPPFLAGS)
+COMPILE =	$(CXX) $(STDFLAG) $(CXXFLAGS) $(WARNFLAGS) $(ALL_CPPFLAGS)
+
+OBJS =		pwm.o $(PORTABLE_OBJS)
+
+# The tests stand in a simulated authenticator for the real one, so they
+# neither need nor link libfido2. That means pwm.cc is compiled twice.
+TEST_OBJS =	pwm_test.o test_pwm.o $(PORTABLE_OBJS)
+TEST_CPPFLAGS =	-DTESTING -I $(srcdir)/test
+
+HDRS =		$(srcdir)/pwm.h
+
+all: pwm $(TESTS)
+
+pwm: $(OBJS)
+	$(CXX) $(STDFLAG) $(CXXFLAGS) $(LDFLAGS) -o $@ $(OBJS) $(LIBS) $(FIDO_LIBS)
+
+pwm.o: $(srcdir)/pwm.cc $(HDRS)
+	$(COMPILE) $(FIDO2_DEF) -c $(srcdir)/pwm.cc -o $@
+
+pwm_test.o: $(srcdir)/pwm.cc $(HDRS)
+	$(COMPILE) $(TEST_CPPFLAGS) -c $(srcdir)/pwm.cc -o $@
+
+test_pwm.o: $(srcdir)/test/test_pwm.cc $(HDRS) $(srcdir)/test/utest.h
+	$(COMPILE) $(TEST_CPPFLAGS) -c $(srcdir)/test/test_pwm.cc -o $@
+
+test_pwm: $(TEST_OBJS)
+	$(CXX) $(STDFLAG) $(CXXFLAGS) $(LDFLAGS) -o $@ $(TEST_OBJS) $(LIBS)
+
+# Compatibility shims. Whether these are built at all is decided by
+# configure; the rules are harmless when PORTABLE_OBJS does not list them.
+arc4random.o: $(srcdir)/portable/arc4random.c $(srcdir)/portable/chacha_private.h
+	$(COMPILE) -c $(srcdir)/portable/arc4random.c -o $@
+
+readpassphrase.o: $(srcdir)/portable/readpassphrase.c $(srcdir)/portable/readpassphrase.h
+	$(COMPILE) -c $(srcdir)/portable/readpassphrase.c -o $@
+
+pledge.o: $(srcdir)/portable/pledge.c
+	$(COMPILE) -c $(srcdir)/portable/pledge.c -o $@
+
+test: check
+
+check: test_pwm
+	./test_pwm
+
+install: pwm
+	if test -n "$(INSTALL)"; then \
+		$(INSTALL) -d $(DESTDIR)$(bindir); \
+		$(INSTALL) -m 555 pwm $(DESTDIR)$(bindir)/pwm; \
+	else \
+		mkdir -p $(DESTDIR)$(bindir); \
+		cp pwm $(DESTDIR)$(bindir)/pwm; \
+		chmod 555 $(DESTDIR)$(bindir)/pwm; \
+	fi
+
+uninstall:
+	rm -f $(DESTDIR)$(bindir)/pwm
+
+fmt:
+	$(CLANG_FORMAT) -i $(srcdir)/pwm.h $(srcdir)/pwm.cc \
+	    $(srcdir)/test/test_pwm.cc
+
+clean:
+	rm -f pwm test_pwm *.o *.core *.tmp conftest conftest.cc config.log Makefile
+
+distclean: clean
+	rm -f Makefile config.log
+
+.PHONY: all test check install uninstall fmt clean distclean

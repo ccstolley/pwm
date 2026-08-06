@@ -84,9 +84,9 @@ operation aborts and the store is left exactly as it was; pass `-F` to
 drop the unreachable key instead, which is how you retire the last slot
 of a key you no longer have.
 
-Security key support needs [libfido2](https://github.com/Yubico/libfido2)
-and is on by default; build with `make FIDO2=0` to leave it out. A store
-with keys enrolled still opens with its password on a build without it.
+Security key support needs [libfido2](https://github.com/Yubico/libfido2).
+A store with keys enrolled still opens with its password on a build
+without it.
 
 Stores written by earlier versions of `pwm` are read as before and are
 upgraded to the key slot format the first time they are written.
@@ -95,6 +95,14 @@ Supported Platforms
 --
 OpenBSD and Linux.
 
+Building
+--
+```
+./configure
+make
+make check
+make install
+```
 
 Examples
 --

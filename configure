@@ -1,0 +1,442 @@
+#!/bin/sh
+#
+# configure - generate a Makefile for pwm.
+#
+# Supported hosts are OpenBSD and Linux; anything else is likely to work
+# if it has a C++20 compiler, zlib and libcrypto.
+
+set -u
+
+srcdir=`dirname "$0"`
+case "$srcdir" in
+"") srcdir=. ;;
+esac
+
+LOG=config.log
+me=`basename "$0"`
+
+prefix=/usr/local
+exec_prefix=
+bindir=
+mandir=
+DESTDIR=
+
+fido2=auto
+debug=yes
+build_tests=yes
+
+CXX=${CXX-}
+CXXFLAGS=${CXXFLAGS-}
+CPPFLAGS=${CPPFLAGS-}
+LDFLAGS=${LDFLAGS-}
+LIBS=${LIBS-}
+PKG_CONFIG=${PKG_CONFIG-pkg-config}
+INSTALL=${INSTALL-}
+CLANG_FORMAT=${CLANG_FORMAT-clang-format}
+
+user_cxxflags=no
+test -n "$CXXFLAGS" && user_cxxflags=yes
+
+usage()
+{
+	cat <<EOF
+Usage: $me [OPTION]...
+
+Installation directories:
+  --prefix=DIR            install architecture independent files in DIR
+                          [$prefix]
+  --exec-prefix=DIR       install architecture dependent files in DIR
+                          [PREFIX]
+  --bindir=DIR            user executables [EPREFIX/bin]
+  --mandir=DIR            man pages [PREFIX/man on OpenBSD,
+                          PREFIX/share/man elsewhere]
+
+Optional features:
+  --with-fido2            require libfido2 (FIDO2 security key support)
+  --without-fido2         build without libfido2; stores with security keys
+                          enrolled then open with the password only
+  --disable-debug         build without -g
+  --disable-tests         do not build or run the test binary
+
+Some influential environment variables:
+  CXX         C++ compiler command
+  CXXFLAGS    C++ compiler flags
+  CPPFLAGS    preprocessor flags, e.g. -I/usr/local/include
+  LDFLAGS     linker flags, e.g. -L/usr/local/lib
+  LIBS        extra libraries to link against
+  PKG_CONFIG  pkg-config command [pkg-config]
+EOF
+}
+
+die()
+{
+	echo "$me: error: $*" >&2
+	echo "$me: see $LOG for details" >&2
+	exit 1
+}
+
+for arg
+do
+	case "$arg" in
+	--help|-h) usage; exit 0 ;;
+	--prefix=*) prefix=${arg#*=} ;;
+	--exec-prefix=*) exec_prefix=${arg#*=} ;;
+	--bindir=*) bindir=${arg#*=} ;;
+	--mandir=*) mandir=${arg#*=} ;;
+	--with-fido2|--enable-fido2) fido2=yes ;;
+	--without-fido2|--disable-fido2) fido2=no ;;
+	--with-fido2=*) fido2=${arg#*=} ;;
+	--disable-debug) debug=no ;;
+	--enable-debug) debug=yes ;;
+	--disable-tests) build_tests=no ;;
+	--enable-tests) build_tests=yes ;;
+	# autoconf junk is accepted but ignored.
+	--build=*|--host=*|--target=*|--infodir=*|--datadir=*|--datarootdir=*|\
+	--libdir=*|--libexecdir=*|--includedir=*|--localstatedir=*|\
+	--sharedstatedir=*|--sysconfdir=*|--runstatedir=*|--docdir=*|\
+	--localedir=*|--htmldir=*|--dvidir=*|--pdfdir=*|--psdir=*|\
+	--oldincludedir=*|--enable-option-checking=*|--disable-option-checking|\
+	--program-prefix=*|--program-suffix=*|--program-transform-name=*|\
+	--enable-dependency-tracking|--disable-dependency-tracking|\
+	--enable-silent-rules|--disable-silent-rules|-q|--quiet|--no-create)
+		;;
+	CXX=*|CXXFLAGS=*|CPPFLAGS=*|LDFLAGS=*|LIBS=*|PKG_CONFIG=*|INSTALL=*)
+		eval "${arg%%=*}=\${arg#*=}"
+		case "$arg" in CXXFLAGS=*) user_cxxflags=yes ;; esac
+		;;
+	*) echo "$me: unrecognized option: $arg" >&2
+	   echo "Try \`$me --help' for more information." >&2
+	   exit 1 ;;
+	esac
+done
+
+case "$fido2" in
+yes|no|auto) ;;
+*) die "--with-fido2 takes yes, no or auto (got '$fido2')" ;;
+esac
+
+test -n "$exec_prefix" || exec_prefix='${prefix}'
+test -n "$bindir" || bindir='${exec_prefix}/bin'
+
+: >$LOG
+{
+	echo "$me run at `date`"
+	echo "command line:" "$0" "$@"
+	echo "uname -a: `uname -a 2>/dev/null`"
+	echo
+} >>$LOG
+
+try_link()
+{
+	cat >conftest.cc
+	echo "=== try_link: $*" >>$LOG
+	sed 's/^/| /' conftest.cc >>$LOG
+
+	if $CXX $CXXFLAGS $CPPFLAGS conftest.cc $LDFLAGS "$@" -o conftest \
+	    >>$LOG 2>&1; then
+		echo "=== result: success" >>$LOG
+		rm -f conftest conftest.cc conftest.o
+		return 0
+	fi
+	echo "=== result: failure" >>$LOG
+	rm -f conftest conftest.cc conftest.o
+	return 1
+}
+
+try_compile()
+{
+	cat >conftest.cc
+	echo "=== try_compile: $*" >>$LOG
+	sed 's/^/| /' conftest.cc >>$LOG
+	if $CXX $CXXFLAGS $CPPFLAGS "$@" -c conftest.cc -o conftest.o \
+	    >>$LOG 2>&1; then
+		echo "=== result: success" >>$LOG
+		rm -f conftest.o conftest.cc
+		return 0
+	fi
+	echo "=== result: failure" >>$LOG
+	rm -f conftest.o conftest.cc
+	return 1
+}
+
+have_prog()
+{
+	IFS=:
+	for d in $PATH
+	do
+		test -x "${d:-.}/$1" && { unset IFS; return 0; }
+	done
+	unset IFS
+	return 1
+}
+
+pkg_exists()
+{
+	have_prog "${PKG_CONFIG%% *}" || return 1
+	$PKG_CONFIG --exists "$1" >>$LOG 2>&1
+}
+
+host=`uname -s 2>/dev/null || echo unknown`
+printf 'checking host system type... '
+echo "$host"
+
+printf 'checking for a C++ compiler... '
+if test -n "$CXX"; then
+	cxx_candidates=$CXX
+else
+	cxx_candidates="c++ clang++ g++"
+fi
+found=
+for c in $cxx_candidates
+do
+	CXX=$c
+	if echo 'int main(){return 0;}' | try_link; then
+		found=$c
+		break
+	fi
+done
+test -n "$found" || { CXX=$cxx_candidates; die "no working C++ compiler found (tried: $cxx_candidates)"; }
+CXX=$found
+echo "$CXX"
+
+printf 'checking whether %s accepts --std=c++20... ' "$CXX"
+if try_compile --std=c++20 <<'EOF'
+#include <string_view>
+#include <vector>
+inline constexpr std::string_view kHello{"hi"};
+int main() { std::vector<int> v{1, 2, 3}; return v.size() == 3 && kHello.size() ? 0 : 1; }
+EOF
+then
+	echo yes
+	STDFLAG=--std=c++20
+else
+	echo no
+	die "$CXX does not support C++20; set CXX to a newer compiler"
+fi
+
+WARNFLAGS=
+printf 'checking which warning flags are supported... '
+for f in -pedantic -Wall -Wextra -Wno-unused-function -Wno-write-strings
+do
+	if try_compile $STDFLAG $WARNFLAGS $f <<'EOF'
+int main() { return 0; }
+EOF
+	then
+		WARNFLAGS="$WARNFLAGS $f"
+	fi
+done
+echo "${WARNFLAGS# }"
+
+if test "$user_cxxflags" = no; then
+	CXXFLAGS="-O2"
+	test "$debug" = yes && CXXFLAGS="$CXXFLAGS -g"
+else
+	printf 'using CXXFLAGS from the environment... %s\n' "$CXXFLAGS"
+fi
+
+printf 'checking for zlib... '
+zlib_libs=-lz
+if pkg_exists zlib; then
+	zlib_cflags=`$PKG_CONFIG --cflags zlib`
+	zlib_libs=`$PKG_CONFIG --libs zlib`
+	CPPFLAGS="$CPPFLAGS $zlib_cflags"
+fi
+if try_link $STDFLAG $zlib_libs <<'EOF'
+#include <zlib.h>
+int main() { return compressBound(16) > 0 ? 0 : 1; }
+EOF
+then
+	echo "yes ($zlib_libs)"
+else
+	echo no
+	die "zlib not found: install zlib (Debian/Ubuntu: zlib1g-dev)"
+fi
+
+printf 'checking for libcrypto... '
+crypto_libs=-lcrypto
+if pkg_exists libcrypto; then
+	crypto_cflags=`$PKG_CONFIG --cflags libcrypto`
+	crypto_libs=`$PKG_CONFIG --libs libcrypto`
+	CPPFLAGS="$CPPFLAGS $crypto_cflags"
+fi
+if try_link $STDFLAG $crypto_libs <<'EOF'
+#include <openssl/evp.h>
+int main() { return EVP_sha256() != 0 ? 0 : 1; }
+EOF
+then
+	echo "yes ($crypto_libs)"
+else
+	echo no
+	die "libcrypto not found: install OpenSSL or LibreSSL development files (Debian/Ubuntu: libssl-dev)"
+fi
+
+FIDO2_DEF=
+fido_libs=
+if test "$fido2" = no; then
+	printf 'checking for libfido2... disabled\n'
+else
+	printf 'checking for libfido2... '
+	fido_libs=-lfido2
+	fido_cflags=
+	if pkg_exists libfido2; then
+		fido_cflags=`$PKG_CONFIG --cflags libfido2`
+		fido_libs=`$PKG_CONFIG --libs libfido2`
+	fi
+	if try_link $STDFLAG $fido_cflags $fido_libs <<'EOF'
+#include <fido.h>
+int main() { fido_init(0); return 0; }
+EOF
+	then
+		echo "yes ($fido_libs)"
+		FIDO2_DEF=-DHAVE_FIDO2
+		CPPFLAGS="$CPPFLAGS $fido_cflags"
+	else
+		echo no
+		if test "$fido2" = yes; then
+			die "libfido2 not found but --with-fido2 was given (Debian/Ubuntu: libfido2-dev; OpenBSD: pkg_add libfido2)"
+		fi
+		echo "$me: warning: building without FIDO2 support; stores with" >&2
+		echo "$me: warning: security keys enrolled will open with the password only." >&2
+		echo "$me: warning: pass --with-fido2 to make this an error instead." >&2
+		fido_libs=
+	fi
+fi
+
+PORTABLE_OBJS=
+PORTABLE_INC=
+
+need_portable()
+{
+	case " $PORTABLE_OBJS " in
+	*" $1 "*) ;;
+	*) PORTABLE_OBJS="$PORTABLE_OBJS $1" ;;
+	esac
+	PORTABLE_INC='-I $(srcdir)/portable'
+}
+
+printf 'checking for arc4random_buf... '
+if try_link $STDFLAG <<'EOF'
+#include <stdlib.h>
+int main() { unsigned char b[4]; arc4random_buf(b, sizeof b); return 0; }
+EOF
+then
+	echo yes
+else
+	echo "no (using portable/arc4random.c)"
+	need_portable arc4random.o
+fi
+
+printf 'checking for readpassphrase... '
+if try_link $STDFLAG <<'EOF'
+#include <stdlib.h>
+#include <readpassphrase.h>
+int main() { char b[4]; return readpassphrase("", b, sizeof b, RPP_ECHO_OFF) ? 0 : 1; }
+EOF
+then
+	echo yes
+else
+	echo "no (using portable/readpassphrase.c)"
+	need_portable readpassphrase.o
+fi
+
+printf 'checking for pledge... '
+if try_link $STDFLAG <<'EOF'
+#include <unistd.h>
+int main() { return pledge("stdio", 0); }
+EOF
+then
+	echo yes
+else
+	echo "no (using a no-op stub)"
+	need_portable pledge.o
+fi
+
+if test -z "$PORTABLE_INC"; then
+	case "$host" in
+	OpenBSD) ;;
+	*) PORTABLE_INC='-I $(srcdir)/portable' ;;
+	esac
+fi
+
+if test -z "$INSTALL"; then
+	printf 'checking for install... '
+	if have_prog install; then
+		INSTALL=install
+		echo install
+	else
+		INSTALL=
+		echo "no (will use cp)"
+	fi
+fi
+
+# man page, if I ever write one.
+if test -z "$mandir"; then
+	case "$host" in
+	OpenBSD) mandir='${prefix}/man' ;;
+	*) mandir='${prefix}/share/man' ;;
+	esac
+fi
+
+printf 'checking for clang-format... '
+if have_prog "${CLANG_FORMAT%% *}"; then
+	echo "$CLANG_FORMAT"
+else
+	echo "no (the fmt target will not work)"
+fi
+
+test -f "$srcdir/Makefile.in" || die "cannot find $srcdir/Makefile.in"
+
+TESTS=
+test "$build_tests" = yes && TESTS=test_pwm
+
+LIBS="$zlib_libs $crypto_libs $LIBS"
+FIDO_LIBS=$fido_libs
+
+esc()
+{
+	printf '%s' "$1" | sed 's/[\\&|]/\\&/g'
+}
+
+printf 'creating Makefile... '
+{
+	echo "# Generated by $me on `date`. Do not edit; edit Makefile.in."
+	echo "# Reconfigure with: $0" "$@"
+	sed \
+	    -e "s|@srcdir@|`esc "$srcdir"`|g" \
+	    -e "s|@CXX@|`esc "$CXX"`|g" \
+	    -e "s|@CXXFLAGS@|`esc "$CXXFLAGS"`|g" \
+	    -e "s|@STDFLAG@|`esc "$STDFLAG"`|g" \
+	    -e "s|@WARNFLAGS@|`esc "${WARNFLAGS# }"`|g" \
+	    -e "s|@CPPFLAGS@|`esc "${CPPFLAGS# }"`|g" \
+	    -e "s|@LDFLAGS@|`esc "$LDFLAGS"`|g" \
+	    -e "s|@LIBS@|`esc "$LIBS"`|g" \
+	    -e "s|@FIDO2_DEF@|`esc "$FIDO2_DEF"`|g" \
+	    -e "s|@FIDO_LIBS@|`esc "$FIDO_LIBS"`|g" \
+	    -e "s|@PORTABLE_OBJS@|`esc "${PORTABLE_OBJS# }"`|g" \
+	    -e "s|@PORTABLE_INC@|`esc "$PORTABLE_INC"`|g" \
+	    -e "s|@prefix@|`esc "$prefix"`|g" \
+	    -e "s|@exec_prefix@|`esc "$exec_prefix"`|g" \
+	    -e "s|@bindir@|`esc "$bindir"`|g" \
+	    -e "s|@mandir@|`esc "$mandir"`|g" \
+	    -e "s|@INSTALL@|`esc "$INSTALL"`|g" \
+	    -e "s|@CLANG_FORMAT@|`esc "$CLANG_FORMAT"`|g" \
+	    -e "s|@TESTS@|`esc "$TESTS"`|g" \
+	    "$srcdir/Makefile.in"
+} >Makefile.tmp || die "failed to write Makefile"
+mv Makefile.tmp Makefile
+echo done
+
+cat <<EOF
+
+pwm is configured:
+
+  host system:        $host
+  compiler:           $CXX $CXXFLAGS $STDFLAG
+  libraries:          $LIBS $FIDO_LIBS
+  FIDO2 support:      `test -n "$FIDO2_DEF" && echo yes || echo no`
+  portable shims:     `test -n "$PORTABLE_OBJS" && echo "${PORTABLE_OBJS# }" || echo none`
+  build tests:        $build_tests
+  install prefix:     $prefix
+
+Now run \`make' and then \`make install'.
+EOF
