@@ -35,18 +35,16 @@ const int PBKDF2_ITER_COUNT = 500000;
 }
 
 [[noreturn]] static void usage() {
-  bail("usage: pwm [-d | -C | -e | -E | -R <slot> | -u <name> [<meta>...] | "
+  bail("usage: pwm [-d | -C | -e <label> | -l | -R <slot> | -u <name> [<meta>...] | "
        "-r name | <pattern>]\n\n"
        "options:\n"
        "  -C  change master password on existing store (rotates the master "
        "key)\n"
        "  -d  dump all passwords to stderr\n"
-       "  -e  enroll a FIDO2 security key, which can then open the store on "
-       "its own\n"
-       "  -E  list enrolled key slots\n"
+       "  -e  enroll a FIDO2 security key with <label>\n"
+       "  -l  list enrolled key slots\n"
        "  -F  when re-keying, drop any security key that cannot be reached "
        "instead\n      of aborting\n"
-       "  -L  label to record for the security key being enrolled with -e\n"
        "  -P  ignore any attached security key and use the master password\n"
        "  -p  Read password from stdin instead of randomly generating one, "
        "implies -u\n"
@@ -69,22 +67,20 @@ struct CmdFlags get_flags(int argc, char *const *argv) {
   optind = opterr = 1; // for tests
   std::vector<std::string> args;
 
-  while ((ch = getopt(argc, argv, "-CdEeFL:PR:urp")) != -1) {
+  while ((ch = getopt(argc, argv, "-Cdle:FPR:urp")) != -1) {
     switch (ch) {
     case 'r':
       f.remove = true;
       break;
     case 'e':
       f.enroll = true;
+      f.label = optarg;
       break;
-    case 'E':
+    case 'l':
       f.slots = true;
       break;
     case 'F':
       f.drop_missing = true;
-      break;
-    case 'L':
-      f.label = optarg;
       break;
     case 'P':
       f.force_password = true;
