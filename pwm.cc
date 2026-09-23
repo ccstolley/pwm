@@ -35,7 +35,8 @@ const int PBKDF2_ITER_COUNT = 500000;
 }
 
 [[noreturn]] static void usage() {
-  bail("usage: pwm [-d | -C | -e <label> | -l | -R <slot> | -u <name> [<meta>...] | "
+  bail("usage: pwm [-d | -C | -e <label> | -l | -R <slot> | -u <name> "
+       "[<meta>...] | "
        "-r name | <pattern>]\n\n"
        "options:\n"
        "  -C  change master password on existing store (rotates the master "
@@ -213,18 +214,10 @@ bool unlock_store(const std::string &ciphertext, const struct CmdFlags &f,
   return false;
 }
 
-/* An opened store, plus what is needed to write it back out again. */
-struct OpenStore {
-  std::string mk;
-  StoreHeader hdr;
-  std::string data;
-  bool legacy = false; // v0 "Salted__" store, upgraded on the next write
-};
-
 /*
  * Open the store at f.store_path.
  */
-static bool open_store(const struct CmdFlags &f, OpenStore &os) {
+static bool open_store(const struct CmdFlags &f, DataStore &ds) {
   const auto ciphertext = read_file(f.store_path);
 
   if (ciphertext.empty()) {
@@ -232,10 +225,10 @@ static bool open_store(const struct CmdFlags &f, OpenStore &os) {
   }
 
   if (is_v1_store(ciphertext)) {
-    if (!unlock_store(ciphertext, f, os.mk, os.hdr)) {
+    if (!unlock_store(ciphertext, f, ds.mk, ds.hdr)) {
       return false;
     }
-    if (!decrypt_store(ciphertext, os.mk, os.data)) {
+    if (!decrypt_store(ciphertext, ds.mk, ds.data)) {
       fprintf(stderr, "Decrypt failed\n");
       return false;
     }
@@ -244,13 +237,13 @@ static bool open_store(const struct CmdFlags &f, OpenStore &os) {
 
   // Legacy v0 store: the "master key" is PBKDF2 output used directly as key+iv,
   // so there is no MK to cache or wrap until the store is upgraded on write.
-  os.legacy = true;
+  ds.legacy = true;
   std::string key = f.key.empty() ? readpass("passphrase: ") : f.key;
   std::string dkeyiv;
   bool ok = derive_key(ciphertext, key, dkeyiv) &&
-            decrypt(ciphertext, dkeyiv, os.data);
+            decrypt(ciphertext, dkeyiv, ds.data);
   // Retained so that the upgrade on the next write can build a password slot.
-  os.mk = key;
+  ds.mk = key;
   explicit_bzero(&key[0], key.size());
   explicit_bzero(&dkeyiv[0], dkeyiv.size());
   if (!ok) {
@@ -338,22 +331,22 @@ bool rotate_mk(const std::string &plaintext, const std::string &new_password,
 }
 
 /* Write the store back out under the existing MK, keeping a backup. */
-bool write_store(const std::string &plaintext, StoreHeader &hdr,
-                 const std::string &mk, const std::string &path) {
+bool write_store(const std::string &plaintext, const DataStore &ds,
+                 const std::string &path) {
   std::string ciphertext;
-  if (!encrypt_store(plaintext, hdr, mk, ciphertext)) {
+  if (!encrypt_store(plaintext, ds.hdr, ds.mk, ciphertext)) {
     return false;
   }
   return dump_to_file(ciphertext, path);
 }
 
 bool handle_search(const struct CmdFlags &f, Storage::Entry &entry) {
-  OpenStore os;
+  DataStore ds;
 
-  if (!open_store(f, os)) {
+  if (!open_store(f, ds)) {
     return false;
   }
-  std::string &data = os.data;
+  std::string &data = ds.data;
 
   if (search(f.name, data, entry)) {
     if (entry.updated_at) {
@@ -371,12 +364,12 @@ bool handle_search(const struct CmdFlags &f, Storage::Entry &entry) {
 }
 
 bool handle_dump(const struct CmdFlags &f) {
-  OpenStore os;
+  DataStore ds;
 
-  if (!open_store(f, os)) {
+  if (!open_store(f, ds)) {
     return false;
   }
-  if (!dump(os.data)) {
+  if (!dump(ds.data)) {
     return false;
   }
   return true;
@@ -409,7 +402,7 @@ bool handle_slots(const struct CmdFlags &f) {
 }
 
 bool handle_enroll(const struct CmdFlags &f) {
-  OpenStore os;
+  DataStore ds;
 
   if (!fido_available()) {
     fprintf(stderr, "this build has no security key support.\n");
@@ -417,24 +410,24 @@ bool handle_enroll(const struct CmdFlags &f) {
   }
   // Enrolling changes which factors open the store, so it always re-authorizes
   // against an existing factor.
-  if (!open_store(f, os)) {
+  if (!open_store(f, ds)) {
     return false;
   }
-  if (os.legacy) {
+  if (ds.legacy) {
     fprintf(stderr, "upgrading %s to the key slot format.\n",
             f.store_path.c_str());
-    std::string password = os.mk;
-    os.hdr.fido_salt = random_bytes(FIDO_SALT_LENGTH);
-    os.hdr.slots.clear();
-    os.mk = random_bytes(MK_LENGTH);
+    std::string password = ds.mk;
+    ds.hdr.fido_salt = random_bytes(FIDO_SALT_LENGTH);
+    ds.hdr.slots.clear();
+    ds.mk = random_bytes(MK_LENGTH);
     KeySlot pw;
-    if (!make_password_slot(password, os.mk, pw)) {
+    if (!make_password_slot(password, ds.mk, pw)) {
       return false;
     }
     explicit_bzero(&password[0], password.size());
-    os.hdr.slots.push_back(pw);
+    ds.hdr.slots.push_back(pw);
   }
-  if (os.hdr.slots.size() >= MAX_SLOTS) {
+  if (ds.hdr.slots.size() >= MAX_SLOTS) {
     fprintf(stderr, "error: already at the %zu key slot limit.\n", MAX_SLOTS);
     return false;
   }
@@ -443,39 +436,39 @@ bool handle_enroll(const struct CmdFlags &f) {
   std::string secret, kek;
   slot.type = SLOT_FIDO2;
   slot.label = f.label.substr(0, MAX_LABEL);
-  if (!fido_enroll(os.hdr.fido_salt, slot.cred_id, secret)) {
+  if (!fido_enroll(ds.hdr.fido_salt, slot.cred_id, secret)) {
     return false;
   }
-  for (const auto &s : os.hdr.slots) {
+  for (const auto &s : ds.hdr.slots) {
     if (s.is_fido() && s.cred_id == slot.cred_id) {
       fprintf(stderr, "that security key is already enrolled.\n");
       return false;
     }
   }
-  bool derived = fido_kek(secret, os.hdr.fido_salt, kek);
+  bool derived = fido_kek(secret, ds.hdr.fido_salt, kek);
   explicit_bzero(&secret[0], secret.size());
-  if (!derived || !wrap_mk(kek, os.mk, slot)) {
+  if (!derived || !wrap_mk(kek, ds.mk, slot)) {
     explicit_bzero(&kek[0], kek.size());
     return false;
   }
   explicit_bzero(&kek[0], kek.size());
-  os.hdr.slots.push_back(slot);
+  ds.hdr.slots.push_back(slot);
 
   if (!save_backup(f.store_path)) {
     bail("failed to save backup. aborting.");
   }
-  if (!write_store(os.data, os.hdr, os.mk, f.store_path)) {
+  if (!write_store(ds.data, ds, f.store_path)) {
     bail("failed to write updated store. backup saved.");
   }
-  explicit_bzero(&os.data[0], os.data.size());
+  explicit_bzero(&ds.data[0], ds.data.size());
   fprintf(stderr, "\nEnrolled %s\n",
-          slot.describe(os.hdr.slots.size() - 1).c_str());
+          slot.describe(ds.hdr.slots.size() - 1).c_str());
   fprintf(stderr, "This key can now open the store on its own.\n");
   return true;
 }
 
 bool handle_deauth(const struct CmdFlags &f) {
-  OpenStore os;
+  DataStore ds;
   const size_t idx = static_cast<size_t>(f.deauth);
 
   // Validate the slot against the (unauthenticated, and already public via -E)
@@ -505,12 +498,12 @@ bool handle_deauth(const struct CmdFlags &f) {
     }
   }
 
-  if (!open_store(f, os)) {
+  if (!open_store(f, ds)) {
     return false;
   }
 
-  fprintf(stderr, "Removing %s\n", os.hdr.slots[idx].describe(idx).c_str());
-  os.hdr.slots.erase(os.hdr.slots.begin() + idx);
+  fprintf(stderr, "Removing %s\n", ds.hdr.slots[idx].describe(idx).c_str());
+  ds.hdr.slots.erase(ds.hdr.slots.begin() + idx);
 
   // Removal has to rotate MK, or an older copy of the store file plus the
   // removed key would still open. That means every *surviving* security key has
@@ -519,7 +512,7 @@ bool handle_deauth(const struct CmdFlags &f) {
       f.key.empty() ? readpass("passphrase (to re-wrap the password slot): ")
                     : f.key;
   std::string ciphertext;
-  if (!rotate_mk(os.data, password, os.hdr, os.mk, ciphertext,
+  if (!rotate_mk(ds.data, password, ds.hdr, ds.mk, ciphertext,
                  f.drop_missing)) {
     explicit_bzero(&password[0], password.size());
     fprintf(stderr, "failed to rotate the master key; store left untouched.\n");
@@ -533,7 +526,7 @@ bool handle_deauth(const struct CmdFlags &f) {
   if (!dump_to_file(ciphertext, f.store_path)) {
     bail("failed to write updated store. backup saved.");
   }
-  explicit_bzero(&os.data[0], os.data.size());
+  explicit_bzero(&ds.data[0], ds.data.size());
   fprintf(stderr,
           "\nKey slot removed and master key rotated.\n\nDelete the backup "
           "store\n  rm %s.bak\nso the removed key cannot open it.\n",
@@ -542,9 +535,9 @@ bool handle_deauth(const struct CmdFlags &f) {
 }
 
 bool handle_chpass(const struct CmdFlags &f) {
-  OpenStore os;
+  DataStore ds;
 
-  if (!open_store(f, os)) {
+  if (!open_store(f, ds)) {
     return false;
   }
   fprintf(stderr, "Resetting password for %s.\n", f.store_path.c_str());
@@ -558,18 +551,18 @@ bool handle_chpass(const struct CmdFlags &f) {
     key = f.newkey;
   }
 
-  if (os.legacy) {
+  if (ds.legacy) {
     fprintf(stderr, "upgrading %s to the key slot format.\n",
             f.store_path.c_str());
-    os.hdr.fido_salt = random_bytes(FIDO_SALT_LENGTH);
-    os.hdr.slots.assign(1, KeySlot{});
-    os.mk = random_bytes(MK_LENGTH);
+    ds.hdr.fido_salt = random_bytes(FIDO_SALT_LENGTH);
+    ds.hdr.slots.assign(1, KeySlot{});
+    ds.mk = random_bytes(MK_LENGTH);
   }
 
   // -C always rotates MK, so that the old password cannot open even an older
   // copy of the store file.
   std::string ciphertext;
-  if (!rotate_mk(os.data, key, os.hdr, os.mk, ciphertext, f.drop_missing)) {
+  if (!rotate_mk(ds.data, key, ds.hdr, ds.mk, ciphertext, f.drop_missing)) {
     explicit_bzero(&key[0], key.size());
     fprintf(stderr, "failed to re-key the store; store left untouched.\n");
     return false;
@@ -582,7 +575,7 @@ bool handle_chpass(const struct CmdFlags &f) {
   if (!dump_to_file(ciphertext, f.store_path)) {
     bail("failed to write updated store. backup saved.");
   }
-  explicit_bzero(&os.data[0], os.data.size());
+  explicit_bzero(&ds.data[0], ds.data.size());
   fprintf(stderr,
           "\nMaster password updated and master key rotated.\n\nDelete the "
           "backup store\n  rm %s.bak\nif your old password was compromised.\n",
@@ -592,7 +585,7 @@ bool handle_chpass(const struct CmdFlags &f) {
 }
 
 bool handle_update(const struct CmdFlags &f, Storage::Entry &entry) {
-  OpenStore os;
+  DataStore ds;
   bool init_new = read_file(f.store_path).empty();
 
   if (init_new) {
@@ -604,20 +597,20 @@ bool handle_update(const struct CmdFlags &f, Storage::Entry &entry) {
         bail("passwords didn't match.");
       }
     }
-    os.hdr.fido_salt = random_bytes(FIDO_SALT_LENGTH);
-    os.mk = random_bytes(MK_LENGTH);
+    ds.hdr.fido_salt = random_bytes(FIDO_SALT_LENGTH);
+    ds.mk = random_bytes(MK_LENGTH);
     KeySlot pw;
-    if (!make_password_slot(key, os.mk, pw)) {
+    if (!make_password_slot(key, ds.mk, pw)) {
       bail("failed to derive a key from the passphrase.");
     }
     explicit_bzero(&key[0], key.size());
-    os.hdr.slots.push_back(pw);
+    ds.hdr.slots.push_back(pw);
   } else {
-    if (!open_store(f, os)) {
+    if (!open_store(f, ds)) {
       return false;
     }
   }
-  std::string &data = os.data;
+  std::string &data = ds.data;
   entry.name = f.name;
   entry.meta = f.meta;
   entry.updated_at = time(nullptr);
@@ -637,21 +630,21 @@ bool handle_update(const struct CmdFlags &f, Storage::Entry &entry) {
   }
   data.clear();
 
-  if (os.legacy) {
+  if (ds.legacy) {
     // First write to an old format store upgrades it in place, carrying the
     // existing password over into the store's one password slot.
     fprintf(stderr, "upgrading %s to the key slot format.\n",
             f.store_path.c_str());
-    std::string password = os.mk;
-    os.hdr.fido_salt = random_bytes(FIDO_SALT_LENGTH);
-    os.hdr.slots.clear();
-    os.mk = random_bytes(MK_LENGTH);
+    std::string password = ds.mk;
+    ds.hdr.fido_salt = random_bytes(FIDO_SALT_LENGTH);
+    ds.hdr.slots.clear();
+    ds.mk = random_bytes(MK_LENGTH);
     KeySlot pw;
-    if (!make_password_slot(password, os.mk, pw)) {
+    if (!make_password_slot(password, ds.mk, pw)) {
       bail("failed to upgrade the store.");
     }
     explicit_bzero(&password[0], password.size());
-    os.hdr.slots.push_back(pw);
+    ds.hdr.slots.push_back(pw);
   }
 
   if (!init_new && !save_backup(f.store_path)) {
@@ -659,7 +652,7 @@ bool handle_update(const struct CmdFlags &f, Storage::Entry &entry) {
   }
 
   newdata = sort_data(newdata);
-  if (!write_store(newdata, os.hdr, os.mk, f.store_path)) {
+  if (!write_store(newdata, ds, f.store_path)) {
     bail("failed to write updated store.");
   }
   explicit_bzero(&newdata[0], newdata.size());

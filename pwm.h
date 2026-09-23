@@ -226,6 +226,18 @@ struct StoreHeader {
   size_t body_off = 0; // offset of body_nonce within the ciphertext
 };
 
+struct DataStore {
+  std::string mk;
+  StoreHeader hdr;
+  std::string data;
+  bool legacy = false; // v0 "Salted__" store, upgraded on the next write
+
+  ~DataStore() {
+    explicit_bzero(&mk[0], mk.size());
+    explicit_bzero(&data[0], data.size());
+  }
+};
+
 static bool save_backup(const std::string &filename);
 static std::string readpass(const std::string &prompt);
 static std::pair<uid_t, gid_t> get_sock_ident(int sock);
@@ -259,8 +271,8 @@ bool unlock_store(const std::string &ciphertext, const struct CmdFlags &f,
 bool rotate_mk(const std::string &plaintext, const std::string &new_password,
                StoreHeader &hdr, std::string &mk, std::string &ciphertext,
                bool drop_missing = false);
-bool write_store(const std::string &plaintext, StoreHeader &hdr,
-                 const std::string &mk, const std::string &path);
+bool write_store(const std::string &plaintext, const DataStore &ds,
+                 const std::string &path);
 bool handle_enroll(const struct CmdFlags &f);
 bool handle_slots(const struct CmdFlags &f);
 bool handle_deauth(const struct CmdFlags &f);
