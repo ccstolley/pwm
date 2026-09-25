@@ -1445,6 +1445,12 @@ bool decrypt_store(const std::string &ciphertext, const std::string &mk,
   if (!parse_header(ciphertext, hdr)) {
     return false;
   }
+  const size_t body_start = hdr.body_off + GCM_NONCE_LENGTH + TAG_LENGTH;
+  if (body_start > ciphertext.size()) {
+    fprintf(stderr, "error: corrupt password store (truncated body).\n");
+    return false;
+  }
+
   const std::string nonce = ciphertext.substr(hdr.body_off, GCM_NONCE_LENGTH);
   const std::string tag =
       ciphertext.substr(hdr.body_off + GCM_NONCE_LENGTH, TAG_LENGTH);
