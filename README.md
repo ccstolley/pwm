@@ -4,16 +4,16 @@ PWM - a simple password manager
 `pwm` stores passwords in an encrypted file on disk and provides a simple interface for retrieving or updating them.
 
 ```
-usage: pwm [-d | -C | -e | -E | -R <slot> | -u <name> [<meta>...] | -r name | <pattern>
+usage: pwm [-d | -C | -e <label> | -l | -R <slot> | -u <name> [<meta>...] | -r name | <pattern>]
 
 options:
   -C  change master password on existing store (rotates the master key)
   -d  dump all passwords to stderr
-  -e  enroll a FIDO2 security key, which can then open the store on its own
-  -E  list enrolled key slots
-  -F  when re-keying, drop any security key that cannot be reached instead of aborting
-  -L  label to record for the security key being enrolled with -e
-  -P  ignore any attached security key and use the password
+  -e  enroll a FIDO2 security key with <label>
+  -l  list enrolled key slots
+  -F  when re-keying, drop any security key that cannot be reached instead
+      of aborting
+  -P  ignore any attached security key and use the master password
   -p  Read password from stdin instead of randomly generating one, implies -u
   -R  remove enrolled key slot by number (rotates the master key)
   -u  create/update password with <name> and optional <meta> data
@@ -41,7 +41,7 @@ security keys (YubiKeys and equivalents). Any enrolled key opens the
 store with a touch and no password:
 
 ```
-$ pwm -e -L "blue yubikey"
+$ pwm -e "blue yubikey"
 passphrase:
 touch your security key to enroll it...
 touch again to confirm...
@@ -54,7 +54,7 @@ Enroll as many keys as you like. `pwm` asks the attached token which of
 the enrolled credentials it holds, and uses that one.
 
 ```
-$ pwm -E
+$ pwm -l
 enrolled key slots in /home/betty/.pwmstore:
   [0] password (pbkdf2, 500000 iterations)
   [1] security key "blue yubikey" cred:a13f0c9e21b7
